@@ -1,11 +1,18 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:excel/excel.dart' hide Border;
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:excel/excel.dart' hide Border;
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/inspection_provider.dart';
 
@@ -17,531 +24,380 @@ class ExportScreen extends StatefulWidget {
 }
 
 class _ExportScreenState extends State<ExportScreen> {
+  static const _exportPathPref = 'fieldlens_export_path';
   bool _isExporting = false;
+  String? _customExportPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExportPath();
+  }
+
+  Future<void> _loadExportPath() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() => _customExportPath = prefs.getString(_exportPathPref));
+  }
+
+  Future<void> _chooseExportDirectory() async {
+    final controller = TextEditingController(text: _customExportPath ?? '');
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Set export folder'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Folder path',
+            hintText: '/storage/emulated/0/Documents/FieldLens Reports',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null) return;
+    if (selected.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_exportPathPref, selected);
+    if (!mounted) return;
+    setState(() => _customExportPath = selected);
+  }
+
+  Future<Directory> _resolveExportDirectory() async {
+    if (_customExportPath != null && _customExportPath!.isNotEmpty) {
+      final selected = Directory(_customExportPath!);
+      if (!await selected.exists()) {
+        await selected.create(recursive: true);
+      }
+      return selected;
+    }
+
+    if (Platform.isAndroid) {
+      final preferred =
+          Directory('/storage/emulated/0/Documents/FieldLens Reports');
+      try {
+        if (!await preferred.exists()) {
+          await preferred.create(recursive: true);
+        }
+        return preferred;
+      } catch (_) {}
+    }
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final fallback = Directory('${appDir.path}/FieldLens Reports');
+    if (!await fallback.exists()) {
+      await fallback.create(recursive: true);
+    }
+    return fallback;
+  }
 
   Future<void> _exportToPDF() async {
     setState(() => _isExporting = true);
-
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final inspectionProvider =
-          Provider.of<InspectionProvider>(context, listen: false);
+      final authProvider = context.read<AuthProvider>();
+      final inspectionProvider = context.read<InspectionProvider>();
+      final inspections = inspectionProvider.inspections;
+      if (inspections.isEmpty) {
+        throw Exception('No inspections available');
+      }
 
       final user = authProvider.currentUser;
-      final inspections = inspectionProvider.inspections;
+      final prepared = await Future.wait(
+        inspections.map((entry) async {
+          final imagePath = entry.primaryPhotoPath;
+          Uint8List? imageBytes;
+          if (imagePath.isNotEmpty) {
+            final file = File(imagePath);
+            if (await file.exists()) {
+              imageBytes = await file.readAsBytes();
+            }
+          }
+          return _PreparedInspection(entry, imageBytes);
+        }),
+      );
 
       final pdf = pw.Document();
-
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(40),
-          build: (pw.Context context) => [
-            // Header
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  'Dilapidation Survey Report',
-                  style: pw.TextStyle(
-                    fontSize: 24,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.SizedBox(height: 8),
-                pw.Text(
-                  'Inspector: ${user?.name ?? 'N/A'}',
-                  style: const pw.TextStyle(fontSize: 12),
-                ),
-                pw.Text(
-                  'Inspector ID: ${user?.inspectorId ?? 'N/A'}',
-                  style: const pw.TextStyle(fontSize: 12),
-                ),
-                pw.Text(
-                  'Report Generated: ${DateTime.now().toString().split('.')[0]}',
-                  style: const pw.TextStyle(fontSize: 12),
-                ),
-                pw.Text(
-                  'Total Items: ${inspections.length}',
-                  style: const pw.TextStyle(fontSize: 12),
-                ),
-                pw.SizedBox(height: 20),
-              ],
+          margin: const pw.EdgeInsets.all(24),
+          build: (_) => [
+            pw.Text(
+              'FieldLens Inspection Report',
+              style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold),
             ),
-            // Table
-            pw.TableHelper.fromTextArray(
-              headers: [
-                'Item No',
-                'Location',
-                'Defect Code',
-                'Type',
-                'Impact',
-                'Comments',
-              ],
-              data: inspections
-                  .map(
-                    (inspection) => [
-                      inspection.itemNumber,
-                      inspection.location,
-                      inspection.defectCode,
-                      inspection.defectType,
-                      inspection.impactCategory,
-                      inspection.inspectorComments.length > 30
-                          ? '${inspection.inspectorComments.substring(0, 30)}...'
-                          : inspection.inspectorComments,
-                    ],
-                  )
-                  .toList(),
-              headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.white,
-              ),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.blue900,
-              ),
-              cellHeight: 30,
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                1: pw.Alignment.centerLeft,
-                2: pw.Alignment.centerLeft,
-                3: pw.Alignment.centerLeft,
-                4: pw.Alignment.centerLeft,
-                5: pw.Alignment.centerLeft,
-              },
-              border: pw.TableBorder.all(),
-            ),
+            pw.SizedBox(height: 8),
+            pw.Text('Inspector: ${user?.name ?? 'N/A'}'),
+            pw.Text('Inspector ID: ${user?.inspectorId ?? 'N/A'}'),
+            pw.Text(
+                'Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}'),
+            pw.Text('Total Records: ${inspections.length}'),
+            pw.SizedBox(height: 16),
+            ...prepared.map((item) => _buildInspectionBlock(item)),
           ],
         ),
       );
 
-      final output = await getApplicationDocumentsDirectory();
-      final fileName =
-          'DilapidationReport_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final file = File('${output.path}/$fileName');
-
-      await file.writeAsBytes(await pdf.save());
-
-      if (mounted) {
-        setState(() => _isExporting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('PDF saved to: ${file.path}'),
-            action: SnackBarAction(
-              label: 'Share',
-              onPressed: () => _shareFile(file),
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isExporting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error exporting PDF: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _exportToExcel() async {
-    setState(() => _isExporting = true);
-
-    try {
-      final inspectionProvider =
-          Provider.of<InspectionProvider>(context, listen: false);
-
-      final inspections = inspectionProvider.inspections;
-
-      final excel = Excel.createExcel();
-      final sheet = excel['Sheet1'];
-
-      // Add headers
-      sheet.appendRow([
-        TextCellValue('Item Number'),
-        TextCellValue('Location'),
-        TextCellValue('Defect Type'),
-        TextCellValue('Defect Code'),
-        TextCellValue('Impact Category'),
-        TextCellValue('Comments'),
-        TextCellValue('Date'),
-      ]);
-
-      // Add data rows
-      for (final inspection in inspections) {
-        sheet.appendRow([
-          TextCellValue(inspection.itemNumber),
-          TextCellValue(inspection.location),
-          TextCellValue(inspection.defectType),
-          TextCellValue(inspection.defectCode),
-          TextCellValue(inspection.impactCategory),
-          TextCellValue(inspection.inspectorComments),
-          TextCellValue(inspection.timestamp.toString().split('.')[0]),
-        ]);
-      }
-
-      final output = await getApplicationDocumentsDirectory();
-      final fileName =
-          'DilapidationReport_${DateTime.now().millisecondsSinceEpoch}.xlsx';
-      final file = File('${output.path}/$fileName');
-
-      await file.writeAsBytes(excel.encode()!);
-
-      if (mounted) {
-        setState(() => _isExporting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Excel file saved to: ${file.path}'),
-            action: SnackBarAction(
-              label: 'Share',
-              onPressed: () => _shareFile(file),
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isExporting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error exporting Excel: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _shareFile(File file) async {
-    try {
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          text: 'Dilapidation Survey Report',
+      final output = await _resolveExportDirectory();
+      final file = File(
+        p.join(
+          output.path,
+          'FieldLens_Report_${DateTime.now().millisecondsSinceEpoch}.pdf',
         ),
       );
+      await file.writeAsBytes(await pdf.save());
+      _showSuccess('PDF saved to: ${file.path}', file);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error sharing file: $e')),
-        );
-      }
+      _showFailure('Error exporting PDF: $e');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-    final inspectionProvider = Provider.of<InspectionProvider>(context);
+  pw.Widget _buildInspectionBlock(_PreparedInspection prepared) {
+    final inspection = prepared.inspection;
+    final imageWidget = prepared.imageBytes == null
+        ? pw.Container(
+            width: 90,
+            height: 90,
+            alignment: pw.Alignment.center,
+            color: PdfColors.grey300,
+            child: pw.Text('No Image'),
+          )
+        : pw.Image(
+            pw.MemoryImage(prepared.imageBytes!),
+            width: 90,
+            height: 90,
+            fit: pw.BoxFit.cover,
+          );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Export Report'),
-        elevation: 0,
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(bottom: 12),
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.blueGrey200),
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.all(isMobile ? 16 : 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Summary Section
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Theme.of(context).colorScheme.primary,
-                        Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Report Summary',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildSummaryRow(
-                        'Total Inspections',
-                        inspectionProvider.inspectionCount.toString(),
-                      ),
-                      _buildSummaryRow(
-                        'Report Format',
-                        'PDF or Excel',
-                      ),
-                      _buildSummaryRow(
-                        'Status',
-                        inspectionProvider.inspectionCount > 0
-                            ? 'Ready to export'
-                            : 'No data to export',
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Export Options
-              Text(
-                'Export Format',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-
-              if (inspectionProvider.inspectionCount == 0)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 32),
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.info,
-                          size: 64,
-                          color: Colors.grey[300],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No inspections to export',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else ...[
-                // PDF Export
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.picture_as_pdf,
-                              size: 32,
-                              color: Colors.red,
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'PDF Report',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Professional formatted report',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton.icon(
-                            onPressed: _isExporting ? null : _exportToPDF,
-                            icon: _isExporting
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.download),
-                            label: Text(
-                              _isExporting ? 'Exporting...' : 'Export as PDF',
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Excel Export
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.table_chart,
-                              size: 32,
-                              color: Colors.green,
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Excel Spreadsheet',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Standard spreadsheet format for data analysis',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton.icon(
-                            onPressed: _isExporting ? null : _exportToExcel,
-                            icon: _isExporting
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.download),
-                            label: Text(
-                              _isExporting
-                                  ? 'Exporting...'
-                                  : 'Export as Excel',
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Info Section
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.blue.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Export Information',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        '• Reports are saved to your device Documents folder\n'
-                        '• You can share reports via email, messaging, or cloud storage\n'
-                        '• All data is stored locally for offline access\n'
-                        '• No internet connection required',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.white70,
-            ),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+          imageWidget,
+          pw.SizedBox(width: 12),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'Report ${inspection.reportNumber.isEmpty ? inspection.itemNumber : inspection.reportNumber}',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                ),
+                pw.Text(
+                    'Project: ${inspection.projectName} (${inspection.projectCode})'),
+                pw.Text('Site: ${inspection.projectSiteLocation}'),
+                pw.Text('Status: ${inspection.status}'),
+                pw.Text(
+                    'Defect: ${inspection.defectCode} (${inspection.defectType})'),
+                pw.Text('Impact: ${inspection.impactCategory}'),
+                pw.Text('Location: ${inspection.location}'),
+                pw.Text('Comment: ${inspection.inspectorComments}'),
+                pw.Text(
+                  'Date/Time: ${DateFormat('yyyy-MM-dd HH:mm').format(inspection.timestamp)}',
+                ),
+                if (inspection.address != null &&
+                    inspection.address!.isNotEmpty)
+                  pw.Text('Address: ${inspection.address}'),
+                if (inspection.latitude != null && inspection.longitude != null)
+                  pw.Text(
+                    'GPS: ${inspection.latitude!.toStringAsFixed(6)}, ${inspection.longitude!.toStringAsFixed(6)}',
+                  ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+
+  Future<void> _exportToExcel() async {
+    setState(() => _isExporting = true);
+    try {
+      final inspectionProvider = context.read<InspectionProvider>();
+      final rows = inspectionProvider.inspections;
+      if (rows.isEmpty) {
+        throw Exception('No inspections available');
+      }
+
+      final excel = Excel.createExcel();
+      final sheet = excel['Inspection Report'];
+      sheet.appendRow([
+        TextCellValue('Report Number'),
+        TextCellValue('Project Name'),
+        TextCellValue('Project Code'),
+        TextCellValue('Site Location'),
+        TextCellValue('Item Number'),
+        TextCellValue('Status'),
+        TextCellValue('Defect Type'),
+        TextCellValue('Defect Code'),
+        TextCellValue('Impact Category'),
+        TextCellValue('Location'),
+        TextCellValue('Inspector Comment'),
+        TextCellValue('Date Time'),
+        TextCellValue('Inspector Address'),
+        TextCellValue('Latitude'),
+        TextCellValue('Longitude'),
+        TextCellValue('Image Reference'),
+      ]);
+
+      for (final inspection in rows) {
+        final imageRef = inspection.primaryPhotoPath.isEmpty
+            ? ''
+            : 'file://${inspection.primaryPhotoPath}';
+        sheet.appendRow([
+          TextCellValue(inspection.reportNumber),
+          TextCellValue(inspection.projectName),
+          TextCellValue(inspection.projectCode),
+          TextCellValue(inspection.projectSiteLocation),
+          TextCellValue(inspection.itemNumber),
+          TextCellValue(inspection.status),
+          TextCellValue(inspection.defectType),
+          TextCellValue(inspection.defectCode),
+          TextCellValue(inspection.impactCategory),
+          TextCellValue(inspection.location),
+          TextCellValue(inspection.inspectorComments),
+          TextCellValue(
+              DateFormat('yyyy-MM-dd HH:mm').format(inspection.timestamp)),
+          TextCellValue(inspection.address ?? ''),
+          TextCellValue(inspection.latitude?.toStringAsFixed(6) ?? ''),
+          TextCellValue(inspection.longitude?.toStringAsFixed(6) ?? ''),
+          TextCellValue(imageRef),
+        ]);
+      }
+
+      final output = await _resolveExportDirectory();
+      final file = File(
+        p.join(
+          output.path,
+          'FieldLens_Report_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+        ),
+      );
+      await file.writeAsBytes(excel.encode()!);
+      _showSuccess('Excel saved to: ${file.path}', file);
+    } catch (e) {
+      _showFailure('Error exporting Excel: $e');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _shareFile(File file) async {
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path)],
+        text: 'FieldLens inspection report',
+      ),
+    );
+  }
+
+  void _showSuccess(String message, File file) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () => _shareFile(file),
+        ),
+      ),
+    );
+  }
+
+  void _showFailure(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final inspectionProvider = context.watch<InspectionProvider>();
+    final count = inspectionProvider.inspectionCount;
+    final exportPathHint =
+        _customExportPath ?? 'Documents/FieldLens Reports (default)';
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Export Report')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Total inspections: $count'),
+                    const SizedBox(height: 8),
+                    Text('Export folder: $exportPathHint'),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _isExporting ? null : _chooseExportDirectory,
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('Choose Export Folder'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _isExporting || count == 0 ? null : _exportToPDF,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: Text(
+                    _isExporting ? 'Exporting...' : 'Export PDF (with images)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _isExporting || count == 0 ? null : _exportToExcel,
+                icon: const Icon(Icons.table_chart),
+                label: Text(
+                  _isExporting
+                      ? 'Exporting...'
+                      : 'Export Excel (with image file references)',
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Reports include photo, comments, description, timestamp, inspector and status.',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PreparedInspection {
+  final InspectionReportModel inspection;
+  final Uint8List? imageBytes;
+
+  _PreparedInspection(this.inspection, this.imageBytes);
 }

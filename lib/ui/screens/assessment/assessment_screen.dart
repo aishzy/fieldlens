@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/inspection_provider.dart';
 
 class AssessmentScreen extends StatefulWidget {
-  const AssessmentScreen({super.key});
+  final InspectionReportModel? existingInspection;
+
+  const AssessmentScreen({super.key, this.existingInspection});
 
   @override
   State<AssessmentScreen> createState() => _AssessmentScreenState();
@@ -15,11 +21,20 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   late TextEditingController _itemNumberController;
   late TextEditingController _locationController;
   late TextEditingController _commentsController;
+  late TextEditingController _projectNameController;
+  late TextEditingController _projectCodeController;
+  late TextEditingController _projectSiteLocationController;
 
-  String? _selectedPhotoPath;
+  final List<String> _selectedPhotoPaths = [];
   String? _selectedDefectType;
   String? _selectedDefectCode;
   String? _selectedImpactCategory;
+  String? _selectedStatus;
+  double? _latitude;
+  double? _longitude;
+  String? _address;
+  DateTime? _photoCapturedAt;
+  bool _isSaving = false;
 
   final ImagePicker _imagePicker = ImagePicker();
 
@@ -30,8 +45,20 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   };
 
   final List<String> impactCategories = ['Minor', 'Moderate', 'Major'];
+  final List<String> statusCategories = [
+    'No Defect',
+    'Minor Defect',
+    'Major Defect',
+    'Crack Found',
+    'Water Leakage',
+    'Poor Finishing',
+    'Safety Hazard',
+    'Incomplete Work',
+    'Completed',
+  ];
 
   final List<String> presetComments = [
+    'No defect observed. Area is in satisfactory condition.',
     'Fine crack noticed at the road curb.',
     'Sinkhole observed under the concrete walkway.',
     'Distribution Box (DB) found in good, stable condition.',
@@ -44,9 +71,35 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   @override
   void initState() {
     super.initState();
-    _itemNumberController = TextEditingController();
-    _locationController = TextEditingController();
-    _commentsController = TextEditingController();
+    final existing = widget.existingInspection;
+    _itemNumberController =
+        TextEditingController(text: existing?.itemNumber ?? '');
+    _locationController = TextEditingController(text: existing?.location ?? '');
+    _commentsController = TextEditingController(
+      text: existing?.inspectorComments ?? '',
+    );
+    _projectNameController =
+        TextEditingController(text: existing?.projectName ?? '');
+    _projectCodeController =
+        TextEditingController(text: existing?.projectCode ?? '');
+    _projectSiteLocationController = TextEditingController(
+      text: existing?.projectSiteLocation ?? '',
+    );
+
+    _selectedDefectType =
+        existing?.defectType == 'General' ? null : existing?.defectType;
+    _selectedDefectCode =
+        existing?.defectCode == 'ND0' ? null : existing?.defectCode;
+    _selectedImpactCategory =
+        existing?.impactCategory ?? impactCategories.first;
+    _selectedStatus = existing?.status ?? statusCategories.first;
+    _latitude = existing?.latitude;
+    _longitude = existing?.longitude;
+    _address = existing?.address;
+    _photoCapturedAt = existing?.timestamp;
+    if (existing != null) {
+      _selectedPhotoPaths.addAll(existing.photoPaths);
+    }
   }
 
   @override
@@ -54,6 +107,9 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _itemNumberController.dispose();
     _locationController.dispose();
     _commentsController.dispose();
+    _projectNameController.dispose();
+    _projectCodeController.dispose();
+    _projectSiteLocationController.dispose();
     super.dispose();
   }
 
@@ -69,8 +125,12 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       if (photo != null) {
         if (!mounted) return;
         setState(() {
-          _selectedPhotoPath = photo.path;
+          _selectedPhotoPaths.add(photo.path);
+          _photoCapturedAt = DateTime.now();
         });
+        if (_latitude == null || _longitude == null) {
+          _detectCurrentLocation();
+        }
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -90,6 +150,154 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     }
   }
 
+  Future<void> _importFromGallery() async {
+    try {
+      final photos = await _imagePicker.pickMultiImage(
+        maxWidth: 1400,
+        maxHeight: 1400,
+        imageQuality: 85,
+      );
+      if (photos.isEmpty || !mounted) return;
+
+      setState(() {
+        _selectedPhotoPaths.addAll(photos.map((item) => item.path));
+        _photoCapturedAt ??= DateTime.now();
+      });
+      if (_latitude == null || _longitude == null) {
+        _detectCurrentLocation();
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${photos.length} photo(s) imported')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error importing photos: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _detectCurrentLocation() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Location service is disabled');
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.denied) {
+        throw Exception('Location permission not granted');
+      }
+
+      final position = await Geolocator.getCurrentPosition();
+      final resolvedAddress =
+          _address ??
+          'Lat ${position.latitude.toStringAsFixed(6)}, '
+              'Lng ${position.longitude.toStringAsFixed(6)}';
+
+      if (!mounted) return;
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+        _address = resolvedAddress;
+        if (_locationController.text.trim().isEmpty) {
+          _locationController.text = resolvedAddress;
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPS location captured')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to capture location: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<List<String>> _persistPhotosToAppStorage() async {
+    final baseDir = await getApplicationDocumentsDirectory();
+    final photoDir = Directory('${baseDir.path}/inspection_photos');
+    if (!await photoDir.exists()) {
+      await photoDir.create(recursive: true);
+    }
+
+    final persisted = <String>[];
+    for (final sourcePath in _selectedPhotoPaths) {
+      final sourceFile = File(sourcePath);
+      if (!await sourceFile.exists()) continue;
+      if (p.isWithin(photoDir.path, sourcePath)) {
+        persisted.add(sourcePath);
+        continue;
+      }
+
+      final destinationName =
+          '${DateTime.now().millisecondsSinceEpoch}_${p.basename(sourcePath)}';
+      final destinationPath = p.join(photoDir.path, destinationName);
+      final copied = await sourceFile.copy(destinationPath);
+      persisted.add(copied.path);
+    }
+    return persisted;
+  }
+
+  Future<void> _savePhotoToGallery(String photoPath) async {
+    try {
+      final sourceFile = File(photoPath);
+      if (!await sourceFile.exists()) {
+        throw Exception('Photo file not found');
+      }
+
+      final targetDir = Platform.isAndroid
+          ? Directory('/storage/emulated/0/Pictures/FieldLens')
+          : await getApplicationDocumentsDirectory();
+      if (!await targetDir.exists()) {
+        await targetDir.create(recursive: true);
+      }
+      final destination = File(
+        p.join(
+          targetDir.path,
+          'fieldlens_${DateTime.now().millisecondsSinceEpoch}_${p.basename(photoPath)}',
+        ),
+      );
+      await sourceFile.copy(destination.path);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Photo saved to Pictures/FieldLens')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving to gallery: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteRemovedPhotos(
+      List<String> previous, List<String> current) async {
+    final removed = previous.where((item) => !current.contains(item));
+    for (final path in removed) {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+  }
+
   Future<void> _saveInspection() async {
     if (_itemNumberController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -105,14 +313,32 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       return;
     }
 
-    if (_selectedPhotoPath == null) {
+    if (_projectNameController.text.trim().isEmpty ||
+        _projectCodeController.text.trim().isEmpty ||
+        _projectSiteLocationController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please capture a photo')),
+        const SnackBar(content: Text('Please complete project details')),
       );
       return;
     }
 
-    if (_selectedDefectType == null || _selectedDefectCode == null) {
+    if (_selectedPhotoPaths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please capture or import at least one photo')),
+      );
+      return;
+    }
+
+    if (_selectedStatus == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select an inspection status')),
+      );
+      return;
+    }
+
+    if (_selectedStatus != 'No Defect' &&
+        (_selectedDefectType == null || _selectedDefectCode == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select Defect Type and Code')),
       );
@@ -126,40 +352,82 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       return;
     }
 
+    setState(() => _isSaving = true);
+
     final inspectionProvider =
         Provider.of<InspectionProvider>(context, listen: false);
+    final storedPhotoPaths = await _persistPhotosToAppStorage();
+    final defectType = _selectedStatus == 'No Defect'
+        ? 'General'
+        : _selectedDefectType ?? 'General';
+    final defectCode =
+        _selectedStatus == 'No Defect' ? 'ND0' : _selectedDefectCode ?? 'ND0';
+    bool success;
 
-    final success = await inspectionProvider.saveInspection(
-      itemNumber: _itemNumberController.text,
-      photoPath: _selectedPhotoPath!,
-      defectType: _selectedDefectType!,
-      defectCode: _selectedDefectCode!,
-      location: _locationController.text,
-      inspectorComments: _commentsController.text,
-      impactCategory: _selectedImpactCategory!,
-    );
-
-    if (mounted) {
+    final existing = widget.existingInspection;
+    if (existing == null) {
+      success = await inspectionProvider.saveInspection(
+        itemNumber: _itemNumberController.text.trim(),
+        photoPaths: storedPhotoPaths,
+        defectType: defectType,
+        defectCode: defectCode,
+        location: _locationController.text.trim(),
+        inspectorComments: _commentsController.text.trim(),
+        impactCategory: _selectedImpactCategory!,
+        status: _selectedStatus!,
+        projectName: _projectNameController.text.trim(),
+        projectCode: _projectCodeController.text.trim(),
+        projectSiteLocation: _projectSiteLocationController.text.trim(),
+        timestamp: _photoCapturedAt ?? DateTime.now(),
+        latitude: _latitude,
+        longitude: _longitude,
+        address: _address,
+      );
+    } else {
+      success = await inspectionProvider.updateInspection(
+        existing.copyWith(
+          itemNumber: _itemNumberController.text.trim(),
+          photoPaths: storedPhotoPaths,
+          defectType: defectType,
+          defectCode: defectCode,
+          location: _locationController.text.trim(),
+          inspectorComments: _commentsController.text.trim(),
+          impactCategory: _selectedImpactCategory!,
+          status: _selectedStatus!,
+          projectName: _projectNameController.text.trim(),
+          projectCode: _projectCodeController.text.trim(),
+          projectSiteLocation: _projectSiteLocationController.text.trim(),
+          timestamp: _photoCapturedAt ?? existing.timestamp,
+          latitude: _latitude,
+          longitude: _longitude,
+          address: _address,
+        ),
+      );
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Inspection saved successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted) {
-            Navigator.pop(context);
-          }
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(inspectionProvider.error ?? 'Failed to save inspection'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        await _deleteRemovedPhotos(existing.photoPaths, storedPhotoPaths);
       }
+    }
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(existing == null
+              ? 'Inspection saved successfully'
+              : 'Inspection updated successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pop(context);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text(inspectionProvider.error ?? 'Failed to save inspection'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -169,7 +437,9 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Inspection'),
+        title: Text(widget.existingInspection == null
+            ? 'New Inspection'
+            : 'Edit Inspection'),
         elevation: 0,
       ),
       body: SafeArea(
@@ -178,25 +448,65 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Photo Capture Section
+              // Photo Capture & Import Section
               Text(
-                'Photo Capture',
+                'Inspection Photos',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 12),
-              if (_selectedPhotoPath != null)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.file(
-                    File(_selectedPhotoPath!),
-                    height: 250,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
+              if (_selectedPhotoPaths.isNotEmpty)
+                SizedBox(
+                  height: 120,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemBuilder: (context, index) {
+                      final path = _selectedPhotoPaths[index];
+                      return Stack(
+                        children: [
+                          GestureDetector(
+                            onTap: () => _openPhotoViewer(path),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.file(
+                                File(path),
+                                height: 120,
+                                width: 120,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                shape: BoxShape.circle,
+                              ),
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedPhotoPaths.removeAt(index);
+                                  });
+                                },
+                                child: const Padding(
+                                  padding: EdgeInsets.all(4),
+                                  child: Icon(Icons.close,
+                                      color: Colors.white, size: 16),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemCount: _selectedPhotoPaths.length,
                   ),
                 )
               else
                 Container(
-                  height: 250,
+                  height: 120,
                   decoration: BoxDecoration(
                     color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(12),
@@ -207,16 +517,16 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          Icons.camera_alt,
-                          size: 64,
+                          Icons.photo_library_outlined,
+                          size: 40,
                           color: Colors.grey[400],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 8),
                         Text(
-                          'No photo selected',
+                          'No photo selected yet',
                           style: TextStyle(
                             color: Colors.grey[600],
-                            fontSize: 16,
+                            fontSize: 14,
                           ),
                         ),
                       ],
@@ -224,20 +534,43 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                   ),
                 ),
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _capturePhoto,
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Capture Photo'),
-                  style: ElevatedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: _capturePhoto,
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('Camera'),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: _importFromGallery,
+                        icon: const Icon(Icons.photo_library),
+                        label: const Text('Gallery'),
+                      ),
+                    ),
+                  ),
+                ],
               ),
+              if (_selectedPhotoPaths.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () =>
+                        _savePhotoToGallery(_selectedPhotoPaths.first),
+                    icon: const Icon(Icons.save_alt),
+                    label: const Text('Save first photo to Pictures/FieldLens'),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
 
               // Item Number
@@ -267,6 +600,43 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                 controller: _locationController,
                 decoration: InputDecoration(
                   hintText: 'e.g., Pusat Pengajian Maktab PAT',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Project Details
+              Text(
+                'Project Information',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _projectNameController,
+                decoration: InputDecoration(
+                  hintText: 'Project Name',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _projectCodeController,
+                decoration: InputDecoration(
+                  hintText: 'Project Code',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _projectSiteLocationController,
+                decoration: InputDecoration(
+                  hintText: 'Project Site Location',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -308,8 +678,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children:
-                      defectCodes[_selectedDefectType]!.map((code) {
+                  children: defectCodes[_selectedDefectType]!.map((code) {
                     return ChoiceChip(
                       label: Text(code),
                       selected: _selectedDefectCode == code,
@@ -323,6 +692,32 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                 ),
                 const SizedBox(height: 24),
               ],
+
+              Text(
+                'Inspection Status',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: statusCategories.map((status) {
+                  return ChoiceChip(
+                    label: Text(status),
+                    selected: _selectedStatus == status,
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedStatus = selected ? status : null;
+                        if (_selectedStatus == 'No Defect') {
+                          _selectedDefectType = null;
+                          _selectedDefectCode = null;
+                        }
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 24),
 
               // Impact Category
               Text(
@@ -347,8 +742,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                     ),
                     onSelected: (selected) {
                       setState(() {
-                        _selectedImpactCategory =
-                            selected ? category : null;
+                        _selectedImpactCategory = selected ? category : null;
                       });
                     },
                   );
@@ -399,14 +793,53 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
               ),
               const SizedBox(height: 24),
 
+              // GPS
+              Text(
+                'GPS & Address',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _detectCurrentLocation,
+                  icon: const Icon(Icons.my_location),
+                  label: const Text('Capture Current GPS Location'),
+                ),
+              ),
+              if (_latitude != null && _longitude != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Lat/Lng: ${_latitude!.toStringAsFixed(6)}, ${_longitude!.toStringAsFixed(6)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              if (_address != null && _address!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Address: $_address',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              const SizedBox(height: 24),
+
               // Save Button
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton.icon(
-                  onPressed: _saveInspection,
-                  icon: const Icon(Icons.save),
-                  label: const Text('Save to Worksheet'),
+                  onPressed: _isSaving ? null : _saveInspection,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save),
+                  label: Text(widget.existingInspection == null
+                      ? 'Save to Worksheet'
+                      : 'Update Inspection'),
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -433,5 +866,31 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       default:
         return Colors.grey;
     }
+  }
+
+  void _openPhotoViewer(String path) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.all(8),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 5,
+              child: Image.file(File(path), fit: BoxFit.contain),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton.filled(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

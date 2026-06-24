@@ -5,7 +5,7 @@ import '../models/inspection_report_model.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'dilapidation_survey.db';
-  static const _databaseVersion = 1;
+  static const _databaseVersion = 2;
 
   static const String usersTable = 'users';
   static const String inspectionReportsTable = 'inspection_reports';
@@ -25,6 +25,7 @@ class DatabaseHelper {
       path,
       version: _databaseVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -46,11 +47,20 @@ class DatabaseHelper {
         user_id TEXT NOT NULL,
         item_number TEXT NOT NULL,
         photo_path TEXT NOT NULL,
+        photo_paths TEXT NOT NULL,
         defect_type TEXT NOT NULL,
         defect_code TEXT NOT NULL,
         location TEXT NOT NULL,
         inspector_comments TEXT NOT NULL,
         impact_category TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'No Defect',
+        project_name TEXT NOT NULL DEFAULT '',
+        project_code TEXT NOT NULL DEFAULT '',
+        project_site_location TEXT NOT NULL DEFAULT '',
+        report_number TEXT NOT NULL DEFAULT '',
+        latitude REAL,
+        longitude REAL,
+        address TEXT,
         timestamp TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
         FOREIGN KEY(user_id) REFERENCES $usersTable(id)
@@ -60,6 +70,46 @@ class DatabaseHelper {
     await db.execute('''
       CREATE INDEX idx_user_id ON $inspectionReportsTable(user_id)
     ''');
+  }
+
+  static Future<void> _onUpgrade(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN photo_paths TEXT NOT NULL DEFAULT '[]'",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN status TEXT NOT NULL DEFAULT 'No Defect'",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN project_name TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN project_code TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN project_site_location TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN report_number TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN latitude REAL",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN longitude REAL",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN address TEXT",
+      );
+
+      await db.execute(
+        "UPDATE $inspectionReportsTable SET photo_paths = '[\"' || REPLACE(photo_path, '\"', '\\\"') || '\"]' WHERE photo_path IS NOT NULL AND photo_path != ''",
+      );
+    }
   }
 
   static Future<void> initDatabase() async {
@@ -126,7 +176,8 @@ class DatabaseHelper {
     }
   }
 
-  static Future<List<InspectionReportModel>> getInspectionsByUserId(String userId) async {
+  static Future<List<InspectionReportModel>> getInspectionsByUserId(
+      String userId) async {
     final db = await database;
     final maps = await db.query(
       inspectionReportsTable,
@@ -154,6 +205,18 @@ class DatabaseHelper {
     );
   }
 
+  static Future<InspectionReportModel?> getInspectionById(String id) async {
+    final db = await database;
+    final maps = await db.query(
+      inspectionReportsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return InspectionReportModel.fromMap(maps.first);
+  }
+
   static Future<int> getInspectionCount(String userId) async {
     final db = await database;
     final count = Sqflite.firstIntValue(
@@ -165,7 +228,8 @@ class DatabaseHelper {
     return count ?? 0;
   }
 
-  static Future<bool> updateInspectionReport(InspectionReportModel report) async {
+  static Future<bool> updateInspectionReport(
+      InspectionReportModel report) async {
     try {
       final db = await database;
       final changes = await db.update(
@@ -192,6 +256,20 @@ class DatabaseHelper {
     } catch (e) {
       return false;
     }
+  }
+
+  static Future<String> generateNextReportNumber() async {
+    final db = await database;
+    final year = DateTime.now().year.toString();
+    final count = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM $inspectionReportsTable WHERE timestamp LIKE ?',
+            ['$year-%'],
+          ),
+        ) ??
+        0;
+    final next = (count + 1).toString().padLeft(3, '0');
+    return 'FL-$year-$next';
   }
 
   static Future<void> deleteAllData() async {

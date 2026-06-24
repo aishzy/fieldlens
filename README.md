@@ -382,11 +382,9 @@ For issues or questions:
 
 ## 📞 Contact
 
-- Email: support@example.com
+- Email: amalirfanshaha@gmail.com
 - Issue Tracker: GitHub Issues
 
 ---
-
-**Made with ❤️ for field inspectors worldwide**
 
 Built to work offline, everywhere.

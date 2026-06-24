@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:io';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/inspection_provider.dart';
 import '../auth/login_screen.dart';
 import '../assessment/assessment_screen.dart';
 import '../export/export_screen.dart';
+import '../history/inspection_history_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -39,7 +41,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             TextButton(
               onPressed: () async {
-                await Provider.of<AuthProvider>(context, listen: false).logout();
+                await Provider.of<AuthProvider>(context, listen: false)
+                    .logout();
                 if (!context.mounted) return;
                 Navigator.pushReplacementNamed(context, LoginScreen.routeName);
               },
@@ -104,7 +107,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       end: Alignment.bottomRight,
                       colors: [
                         Theme.of(context).colorScheme.primary,
-                        Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+                        Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.7),
                       ],
                     ),
                     borderRadius: BorderRadius.circular(12),
@@ -196,6 +202,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
+                        builder: (_) => const InspectionHistoryScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.history),
+                  label: const Text('Inspection History'),
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 60,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
                         builder: (_) => const ExportScreen(),
                       ),
                     );
@@ -244,25 +272,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: inspectionProvider.inspections
-                      .take(5)
-                      .length,
+                  itemCount: inspectionProvider.inspections.take(5).length,
                   itemBuilder: (context, index) {
-                    final inspection =
-                        inspectionProvider.inspections[index];
+                    final inspection = inspectionProvider.inspections[index];
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: ListTile(
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: inspection.primaryPhotoPath.isNotEmpty &&
+                                  File(inspection.primaryPhotoPath).existsSync()
+                              ? Image.file(
+                                  File(inspection.primaryPhotoPath),
+                                  width: 48,
+                                  height: 48,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  width: 48,
+                                  height: 48,
+                                  color: Colors.grey[300],
+                                  child: const Icon(Icons.image_not_supported),
+                                ),
+                        ),
                         title: Text(inspection.defectCode),
-                        subtitle: Text(inspection.location),
+                        subtitle: Text(
+                          '${inspection.projectName.isNotEmpty ? '${inspection.projectName} • ' : ''}${inspection.location}',
+                        ),
                         trailing: Chip(
-                          label: Text(inspection.impactCategory),
+                          label: Text(inspection.status),
                           backgroundColor:
                               _getImpactColor(inspection.impactCategory),
                         ),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => AssessmentScreen(
+                                existingInspection: inspection,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     );
                   },
