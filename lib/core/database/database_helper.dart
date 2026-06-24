@@ -286,6 +286,15 @@ class DatabaseHelper {
   static Future<bool> deleteSession(String sessionId) async {
     try {
       final db = await database;
+      
+      // First delete all inspections associated with this session
+      await db.delete(
+        inspectionReportsTable,
+        where: 'session_id = ?',
+        whereArgs: [sessionId],
+      );
+      
+      // Then delete the session
       await db.delete(
         sessionsTable,
         where: 'id = ?',

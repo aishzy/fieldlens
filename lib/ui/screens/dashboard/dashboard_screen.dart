@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/session_provider.dart';
 import '../../../core/providers/inspection_provider.dart';
+import '../../../core/models/session_model.dart';
 import '../auth/login_screen.dart';
 import '../assessment/assessment_screen.dart';
 import '../export/export_screen.dart';
@@ -213,6 +214,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  void _showDeleteSessionDialog(
+    BuildContext context,
+    SessionModel session,
+    SessionProvider sessionProvider,
+    int inspectionCount,
+  ) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Session?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Session Name: ${session.sessionName}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              if (inspectionCount > 0)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'This session contains $inspectionCount inspection${inspectionCount > 1 ? 's' : ''}.',
+                      style: TextStyle(color: Colors.orange[700]),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              const Text(
+                'Deleting this session will:',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 8),
+              const Text('• Remove the session'),
+              if (inspectionCount > 0) const Text('• Delete all associated inspections'),
+              if (inspectionCount > 0) const Text('• Remove all inspection images'),
+              const SizedBox(height: 12),
+              const Text(
+                'This action cannot be undone.',
+                style: TextStyle(
+                  fontStyle: FontStyle.italic,
+                  color: Colors.red,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                
+                final success =
+                    await sessionProvider.deleteSession(session.id);
+                
+                if (mounted) {
+                  if (success) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            '${session.sessionName} deleted successfully'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Failed to delete session'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 600;
@@ -353,6 +443,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     final session = sessionProvider.sessions[index];
                     final isSelected =
                         sessionProvider.currentSessionId == session.id;
+                     
+                    // Get inspection count for this session
+                    final inspectionCount = inspectionProvider
+                        .getInspectionCountBySessionId(session.id);
+                     
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       shape: RoundedRectangleBorder(
@@ -365,27 +460,132 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               )
                             : BorderSide.none,
                       ),
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.folder,
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.folder,
+                                  color: isSelected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Colors.grey,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        session.sessionName,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color: isSelected
+                                              ? Theme.of(context)
+                                                  .colorScheme
+                                                  .primary
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        session.projectName,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey[700],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                isSelected
+                                    ? Icon(
+                                        Icons.check_circle,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      )
+                                    : const SizedBox.shrink(),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '📍 ${session.siteLocation}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey[600],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Text(
+                                  '$inspectionCount Inspections',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Created: ${DateFormat('dd MMM yyyy').format(session.createdAt)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                if (!isSelected)
+                                  TextButton(
+                                    onPressed: () {
+                                      inspectionProvider
+                                          .setCurrentSession(session.id);
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                              'Switched to ${session.sessionName}'),
+                                          duration:
+                                              const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                    child: const Text('Select'),
+                                  ),
+                                const SizedBox(width: 8),
+                                TextButton.icon(
+                                  onPressed: () =>
+                                      _showDeleteSessionDialog(
+                                          context,
+                                          session,
+                                          sessionProvider,
+                                          inspectionCount),
+                                  icon: const Icon(Icons.delete_outline,
+                                      size: 18),
+                                  label: const Text('Delete'),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                        title: Text(session.sessionName),
-                        subtitle: Text(
-                          '${session.projectName} • ${session.siteLocation}',
-                        ),
-                        trailing: isSelected
-                            ? Icon(
-                                Icons.check_circle,
-                                color:
-                                    Theme.of(context).colorScheme.primary,
-                              )
-                            : null,
-                        onTap: () {
-                          inspectionProvider.setCurrentSession(session.id);
-                        },
                       ),
                     );
                   },

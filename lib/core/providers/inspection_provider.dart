@@ -173,6 +173,14 @@ class InspectionProvider extends ChangeNotifier {
     }
   }
 
+  int getInspectionCountBySessionId(String sessionId) {
+    try {
+      return _inspections.where((i) => i.sessionId == sessionId).length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   void clearError() {
     _error = null;
     notifyListeners();
