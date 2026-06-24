@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
+import 'package:intl/intl.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/inspection_provider.dart';
 import '../auth/login_screen.dart';
 import '../assessment/assessment_screen.dart';
@@ -18,6 +20,30 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  String _sessionKey(InspectionReportModel inspection) {
+    final refNo = inspection.refNo.trim();
+    final project = inspection.projectName.trim();
+    final date = DateFormat('yyyyMMdd').format(inspection.timestamp);
+
+    if (refNo.isNotEmpty) {
+      return 'ref:$refNo|$date';
+    }
+    if (project.isNotEmpty) {
+      return 'project:$project|$date';
+    }
+    return 'date:$date';
+  }
+
+  int _currentSessionCount(List<InspectionReportModel> inspections) {
+    if (inspections.isEmpty) return 0;
+
+    final latest = inspections.reduce(
+      (a, b) => a.timestamp.isAfter(b.timestamp) ? a : b,
+    );
+    final latestKey = _sessionKey(latest);
+    return inspections.where((item) => _sessionKey(item) == latestKey).length;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +85,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final isMobile = MediaQuery.of(context).size.width < 600;
     final authProvider = Provider.of<AuthProvider>(context);
     final inspectionProvider = Provider.of<InspectionProvider>(context);
+    final currentSessionCount =
+      _currentSessionCount(inspectionProvider.inspections);
 
     return Scaffold(
       appBar: AppBar(
@@ -156,7 +184,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Expanded(
                     child: _buildStatCard(
                       title: 'This Session',
-                      value: '0',
+                      value: currentSessionCount.toString(),
                       icon: Icons.today,
                       color: Colors.green,
                       isMobile: isMobile,

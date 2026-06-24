@@ -34,6 +34,7 @@ class _ExportScreenState extends State<ExportScreen> {
 
   bool _isExporting = false;
   String _exportPreset = _downloadsPreset;
+  String? _selectedSessionKey;
 
   double get _pdfPhotoWidth => _pdfPhotoWidthCm * PdfPageFormat.cm;
   double get _pdfPhotoHeight => _pdfPhotoHeightCm * PdfPageFormat.cm;
@@ -92,12 +93,96 @@ class _ExportScreenState extends State<ExportScreen> {
     return 'Downloads > FieldLens Reports';
   }
 
+  String _buildSessionKey(InspectionReportModel inspection) {
+    final refNo = inspection.refNo.trim();
+    final project = inspection.projectName.trim();
+    final date = DateFormat('yyyyMMdd').format(inspection.timestamp);
+
+    if (refNo.isNotEmpty) {
+      return 'ref:$refNo|$date';
+    }
+    if (project.isNotEmpty) {
+      return 'project:$project|$date';
+    }
+    return 'date:$date';
+  }
+
+  String _buildSessionLabel(InspectionReportModel inspection) {
+    final date = DateFormat('dd/MM/yyyy').format(inspection.timestamp);
+    final refNo = inspection.refNo.trim();
+    if (refNo.isNotEmpty) {
+      return 'Ref $refNo - $date';
+    }
+
+    final project = inspection.projectName.trim();
+    if (project.isNotEmpty) {
+      return '$project - $date';
+    }
+
+    return 'Session $date';
+  }
+
+  List<_SessionOption> _buildSessionOptions(List<InspectionReportModel> source) {
+    final grouped = <String, List<InspectionReportModel>>{};
+    for (final inspection in source) {
+      final key = _buildSessionKey(inspection);
+      grouped.putIfAbsent(key, () => []).add(inspection);
+    }
+
+    final options = grouped.entries.map((entry) {
+      final rows = entry.value;
+      rows.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      final latest = rows.first;
+      return _SessionOption(
+        key: entry.key,
+        label: _buildSessionLabel(latest),
+        count: rows.length,
+        latestTimestamp: latest.timestamp,
+      );
+    }).toList();
+
+    options.sort((a, b) => b.latestTimestamp.compareTo(a.latestTimestamp));
+    return options;
+  }
+
+  List<InspectionReportModel> _filterInspectionsBySelectedSession(
+    List<InspectionReportModel> source,
+  ) {
+    if (_selectedSessionKey == null) return source;
+    final hasMatch = source.any(
+      (inspection) => _buildSessionKey(inspection) == _selectedSessionKey,
+    );
+    if (!hasMatch) return source;
+    return source
+        .where((inspection) => _buildSessionKey(inspection) == _selectedSessionKey)
+        .toList();
+  }
+
+  String _safeFileSegment(String value) {
+    final segment = value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    return segment.replaceAll(RegExp(r'_+'), '_').replaceAll(RegExp(r'^_|_$'), '');
+  }
+
+  String _sessionFileSuffix(List<_SessionOption> options) {
+    if (_selectedSessionKey == null) {
+      return 'all_sessions';
+    }
+    final selected = options.where((item) => item.key == _selectedSessionKey).toList();
+    if (selected.isEmpty) {
+      return 'selected_session';
+    }
+    final text = _safeFileSegment(selected.first.label);
+    return text.isEmpty ? 'selected_session' : text;
+  }
+
   Future<void> _exportToPDF() async {
     setState(() => _isExporting = true);
     try {
       final authProvider = context.read<AuthProvider>();
       final inspectionProvider = context.read<InspectionProvider>();
-      final inspections = inspectionProvider.inspections;
+      final sessionOptions = _buildSessionOptions(inspectionProvider.inspections);
+      final inspections =
+          _filterInspectionsBySelectedSession(inspectionProvider.inspections);
       if (inspections.isEmpty) {
         throw Exception('No inspections available');
       }
@@ -136,7 +221,7 @@ class _ExportScreenState extends State<ExportScreen> {
       final file = File(
         p.join(
           output.path,
-          'FieldLens_Report_${DateTime.now().millisecondsSinceEpoch}.pdf',
+          'FieldLens_Report_${_sessionFileSuffix(sessionOptions)}_${DateTime.now().millisecondsSinceEpoch}.pdf',
         ),
       );
       await file.writeAsBytes(await pdf.save());
@@ -319,7 +404,8 @@ class _ExportScreenState extends State<ExportScreen> {
     setState(() => _isExporting = true);
     try {
       final inspectionProvider = context.read<InspectionProvider>();
-      final rows = inspectionProvider.inspections;
+      final sessionOptions = _buildSessionOptions(inspectionProvider.inspections);
+      final rows = _filterInspectionsBySelectedSession(inspectionProvider.inspections);
       if (rows.isEmpty) {
         throw Exception('No inspections available');
       }
@@ -451,7 +537,7 @@ class _ExportScreenState extends State<ExportScreen> {
       final file = File(
         p.join(
           output.path,
-          'FieldLens_Report_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+          'FieldLens_Report_${_sessionFileSuffix(sessionOptions)}_${DateTime.now().millisecondsSinceEpoch}.xlsx',
         ),
       );
       final bytes = workbook.saveAsStream();
@@ -525,12 +611,31 @@ class _ExportScreenState extends State<ExportScreen> {
           ),
           pw.SizedBox(height: 2),
           pw.Text(
-            inspection.location.isEmpty ? '-' : inspection.location,
+            _resolvedPdfLocation(inspection),
             style: const pw.TextStyle(fontSize: 7.8),
+            maxLines: 4,
           ),
         ],
       ),
     );
+  }
+
+  String _resolvedPdfLocation(InspectionReportModel inspection) {
+    final location = inspection.location.trim();
+    if (location.isNotEmpty) {
+      return location;
+    }
+
+    final address = (inspection.address ?? '').trim();
+    if (address.isNotEmpty) {
+      return address;
+    }
+
+    if (inspection.latitude != null && inspection.longitude != null) {
+      return '${inspection.latitude!.toStringAsFixed(6)}, ${inspection.longitude!.toStringAsFixed(6)}';
+    }
+
+    return '-';
   }
 
   pw.Widget _buildBottomCommentsCell(
@@ -814,7 +919,15 @@ class _ExportScreenState extends State<ExportScreen> {
   @override
   Widget build(BuildContext context) {
     final inspectionProvider = context.watch<InspectionProvider>();
-    final count = inspectionProvider.inspectionCount;
+    final sessionOptions = _buildSessionOptions(inspectionProvider.inspections);
+    final hasSelectedSession = sessionOptions.any((s) => s.key == _selectedSessionKey);
+    final effectiveSessionKey = hasSelectedSession ? _selectedSessionKey : null;
+    final filteredInspections = effectiveSessionKey == null
+      ? inspectionProvider.inspections
+      : inspectionProvider.inspections
+        .where((item) => _buildSessionKey(item) == effectiveSessionKey)
+        .toList();
+    final count = filteredInspections.length;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Export Report')),
@@ -830,6 +943,30 @@ class _ExportScreenState extends State<ExportScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Total inspections: $count'),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String?>(
+                      initialValue: effectiveSessionKey,
+                      decoration: const InputDecoration(
+                        labelText: 'Session',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('All Sessions (${inspectionProvider.inspectionCount})'),
+                        ),
+                        ...sessionOptions.map(
+                          (session) => DropdownMenuItem<String?>(
+                            value: session.key,
+                            child: Text('${session.label} (${session.count})'),
+                          ),
+                        ),
+                      ],
+                      onChanged: _isExporting
+                          ? null
+                          : (value) => setState(() => _selectedSessionKey = value),
+                    ),
                     const SizedBox(height: 8),
                     const Text('Save location'),
                     const SizedBox(height: 8),
@@ -913,5 +1050,19 @@ class _PreparedPhotoEntry {
     this.imageBytes,
     this.photoIndex = 0,
     this.totalPhotos = 0,
+  });
+}
+
+class _SessionOption {
+  final String key;
+  final String label;
+  final int count;
+  final DateTime latestTimestamp;
+
+  _SessionOption({
+    required this.key,
+    required this.label,
+    required this.count,
+    required this.latestTimestamp,
   });
 }
