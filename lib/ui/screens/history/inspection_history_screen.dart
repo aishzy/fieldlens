@@ -35,8 +35,6 @@ class _InspectionHistoryScreenState extends State<InspectionHistoryScreen> {
       final statusMatch =
           _statusFilter == 'All' || inspection.status == _statusFilter;
       final queryMatch = query.isEmpty ||
-          inspection.projectName.toLowerCase().contains(query) ||
-          inspection.projectCode.toLowerCase().contains(query) ||
           inspection.location.toLowerCase().contains(query) ||
           inspection.status.toLowerCase().contains(query) ||
           inspection.inspectorComments.toLowerCase().contains(query);
@@ -179,9 +177,9 @@ class _InspectionHistoryScreenState extends State<InspectionHistoryScreen> {
                                   ),
                           ),
                           title: Text(
-                            inspection.projectName.isEmpty
-                                ? inspection.itemNumber
-                                : inspection.projectName,
+                            inspection.itemNumber.isEmpty
+                                ? 'Inspection ${inspection.id}'
+                                : inspection.itemNumber,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

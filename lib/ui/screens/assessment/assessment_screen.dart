@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/inspection_provider.dart';
+import '../../../core/providers/session_provider.dart';
 
 class AssessmentScreen extends StatefulWidget {
   final InspectionReportModel? existingInspection;
@@ -21,9 +22,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   late TextEditingController _itemNumberController;
   late TextEditingController _locationController;
   late TextEditingController _commentsController;
-  late TextEditingController _projectNameController;
-  late TextEditingController _projectCodeController;
-  late TextEditingController _projectSiteLocationController;
   late TextEditingController _refNoController;
   late TextEditingController _sectionController;
   bool _scopeInternal = false;
@@ -79,27 +77,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     'Damage (D)',
   ];
 
-  // Reference locations from building reference table
-  static const List<String> locationPresets = [
-    'B ME 1 – Basement M&E Room',
-    'B ME 2 – Basement M&E Pump Room',
-    'GF 1 – Ground Floor Lobby',
-    'GF 2 – Ground Floor Corridor',
-    'GF 3 – Ground Floor Toilet',
-    'L1 1 – Level 1 Classroom',
-    'L1 2 – Level 1 Corridor',
-    'L1 3 – Level 1 Office',
-    'L2 1 – Level 2 Classroom',
-    'L2 2 – Level 2 Corridor',
-    'L2 3 – Level 2 Office',
-    'RF 1 – Roof Floor',
-    'EX 1 – External Facade',
-    'EX 2 – External Perimeter Wall',
-    'P/F 1 – Parking / External',
-    'P/F 2 – Car Park Area',
-    'P/F 3 – Landscape Area',
-  ];
-
   final List<String> impactCategories = ['Minor', 'Moderate', 'Major'];
   final List<String> statusCategories = [
     'No Defect',
@@ -141,13 +118,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _commentsController = TextEditingController(
       text: existing?.inspectorComments ?? '',
     );
-    _projectNameController =
-        TextEditingController(text: existing?.projectName ?? '');
-    _projectCodeController =
-        TextEditingController(text: existing?.projectCode ?? '');
-    _projectSiteLocationController = TextEditingController(
-      text: existing?.projectSiteLocation ?? '',
-    );
     _refNoController = TextEditingController(text: existing?.refNo ?? '');
     _sectionController = TextEditingController(text: existing?.section ?? '');
     _scopeInternal = existing?.scopeInternal ?? false;
@@ -173,9 +143,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _itemNumberController.dispose();
     _locationController.dispose();
     _commentsController.dispose();
-    _projectNameController.dispose();
-    _projectCodeController.dispose();
-    _projectSiteLocationController.dispose();
     _refNoController.dispose();
     _sectionController.dispose();
     super.dispose();
@@ -381,15 +348,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       return;
     }
 
-    if (_projectNameController.text.trim().isEmpty ||
-        _projectCodeController.text.trim().isEmpty ||
-        _projectSiteLocationController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please complete project details')),
-      );
-      return;
-    }
-
     if (_selectedPhotoPaths.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -416,6 +374,19 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
 
     final inspectionProvider =
         Provider.of<InspectionProvider>(context, listen: false);
+    final sessionProvider =
+        Provider.of<SessionProvider>(context, listen: false);
+
+    final sessionId = sessionProvider.currentSessionId;
+    if (sessionId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No session selected')),
+      );
+      setState(() => _isSaving = false);
+      return;
+    }
+
     final storedPhotoPaths = await _persistPhotosToAppStorage();
     final codes = _selectedDefectCodes.toList();
     // Derive primary defect type and code from selected codes for backward compat
@@ -437,6 +408,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     final existing = widget.existingInspection;
     if (existing == null) {
       success = await inspectionProvider.saveInspection(
+        sessionId: sessionId,
         itemNumber: _itemNumberController.text.trim(),
         photoPaths: storedPhotoPaths,
         defectType: defectType,
@@ -445,9 +417,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         inspectorComments: _commentsController.text.trim(),
         impactCategory: _selectedImpactCategory!,
         status: _selectedStatus!,
-        projectName: _projectNameController.text.trim(),
-        projectCode: _projectCodeController.text.trim(),
-        projectSiteLocation: _projectSiteLocationController.text.trim(),
         timestamp: _photoCapturedAt ?? DateTime.now(),
         latitude: _latitude,
         longitude: _longitude,
@@ -471,9 +440,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           inspectorComments: _commentsController.text.trim(),
           impactCategory: _selectedImpactCategory!,
           status: _selectedStatus!,
-          projectName: _projectNameController.text.trim(),
-          projectCode: _projectCodeController.text.trim(),
-          projectSiteLocation: _projectSiteLocationController.text.trim(),
           timestamp: _photoCapturedAt ?? existing.timestamp,
           latitude: _latitude,
           longitude: _longitude,
@@ -730,60 +696,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                 controller: _locationController,
                 decoration: InputDecoration(
                   hintText: 'e.g., Ground Floor Lobby',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text('Quick Select', style: Theme.of(context).textTheme.bodySmall),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: locationPresets.map((loc) {
-                  return ActionChip(
-                    label: Text(loc, style: const TextStyle(fontSize: 11)),
-                    onPressed: () {
-                      setState(() {
-                        _locationController.text = loc;
-                      });
-                    },
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 24),
-
-              // Project Details
-              Text(
-                'Project Information',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _projectNameController,
-                decoration: InputDecoration(
-                  hintText: 'Project Name',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _projectCodeController,
-                decoration: InputDecoration(
-                  hintText: 'Project Code',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _projectSiteLocationController,
-                decoration: InputDecoration(
-                  hintText: 'Project Site Location',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

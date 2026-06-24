@@ -95,14 +95,10 @@ class _ExportScreenState extends State<ExportScreen> {
 
   String _buildSessionKey(InspectionReportModel inspection) {
     final refNo = inspection.refNo.trim();
-    final project = inspection.projectName.trim();
     final date = DateFormat('yyyyMMdd').format(inspection.timestamp);
 
     if (refNo.isNotEmpty) {
       return 'ref:$refNo|$date';
-    }
-    if (project.isNotEmpty) {
-      return 'project:$project|$date';
     }
     return 'date:$date';
   }
@@ -112,11 +108,6 @@ class _ExportScreenState extends State<ExportScreen> {
     final refNo = inspection.refNo.trim();
     if (refNo.isNotEmpty) {
       return 'Ref $refNo - $date';
-    }
-
-    final project = inspection.projectName.trim();
-    if (project.isNotEmpty) {
-      return '$project - $date';
     }
 
     return 'Session $date';
@@ -415,30 +406,26 @@ class _ExportScreenState extends State<ExportScreen> {
       sheet.name = 'Dilapidation Survey Report';
 
       final headers = [
-        'Report Number',
-        'Item No.',
-        'REF. NO.',
-        'Project Name',
-        'Project Code',
-        'Site Location',
-        'Section',
-        'Scope (Internal)',
-        'Scope (External)',
-        'Scope (M&E)',
-        'Scope (Public Fac.)',
-        'WC1', 'WC2', 'WC3', 'WC4',
-        'FC1', 'FC2', 'FC3', 'FC4',
-        'B1', 'B2', 'B3', 'B4',
-        'D1', 'D2', 'D3', 'D4',
-        'Status',
-        'Impact Category',
-        'Location',
-        "Inspector's Comments",
-        'Date Time',
-        'GPS Lat',
-        'GPS Lng',
-        'Address',
-        'Photo',
+       'Item No.',
+       'REF. NO.',
+       'Section',
+       'Scope (Internal)',
+       'Scope (External)',
+       'Scope (M&E)',
+       'Scope (Public Fac.)',
+       'WC1', 'WC2', 'WC3', 'WC4',
+       'FC1', 'FC2', 'FC3', 'FC4',
+       'B1', 'B2', 'B3', 'B4',
+       'D1', 'D2', 'D3', 'D4',
+       'Status',
+       'Impact Category',
+       'Location',
+       "Inspector's Comments",
+       'Date Time',
+       'GPS Lat',
+       'GPS Lng',
+       'Address',
+       'Photo',
       ];
 
       for (var i = 0; i < headers.length; i++) {
@@ -464,18 +451,14 @@ class _ExportScreenState extends State<ExportScreen> {
         final excelRow = rowIndex + 2;
         final codes = inspection.selectedDefectCodes.toSet();
 
-        sheet.getRangeByIndex(excelRow, 1).setText(inspection.reportNumber);
-        sheet.getRangeByIndex(excelRow, 2).setText(inspection.itemNumber);
-        sheet.getRangeByIndex(excelRow, 3).setText(inspection.refNo);
-        sheet.getRangeByIndex(excelRow, 4).setText(inspection.projectName);
-        sheet.getRangeByIndex(excelRow, 5).setText(inspection.projectCode);
-        sheet.getRangeByIndex(excelRow, 6).setText(inspection.projectSiteLocation);
-        sheet.getRangeByIndex(excelRow, 7).setText(inspection.section);
-        sheet.getRangeByIndex(excelRow, 8).setText(inspection.scopeInternal ? '✓' : '');
-        sheet.getRangeByIndex(excelRow, 9).setText(inspection.scopeExternal ? '✓' : '');
-        sheet.getRangeByIndex(excelRow, 10).setText(inspection.scopeME ? '✓' : '');
+        sheet.getRangeByIndex(excelRow, 1).setText(inspection.itemNumber);
+        sheet.getRangeByIndex(excelRow, 2).setText(inspection.refNo);
+        sheet.getRangeByIndex(excelRow, 3).setText(inspection.section);
+        sheet.getRangeByIndex(excelRow, 4).setText(inspection.scopeInternal ? '✓' : '');
+        sheet.getRangeByIndex(excelRow, 5).setText(inspection.scopeExternal ? '✓' : '');
+        sheet.getRangeByIndex(excelRow, 6).setText(inspection.scopeME ? '✓' : '');
         sheet
-            .getRangeByIndex(excelRow, 11)
+            .getRangeByIndex(excelRow, 7)
             .setText(inspection.scopePublicFacilities ? '✓' : '');
 
         const allCodeOrder = [
@@ -487,28 +470,28 @@ class _ExportScreenState extends State<ExportScreen> {
         for (var c = 0; c < allCodeOrder.length; c++) {
           final code = allCodeOrder[c];
           sheet
-              .getRangeByIndex(excelRow, 12 + c)
+              .getRangeByIndex(excelRow, 8 + c)
               .setText(codes.contains(code) ? '✓' : '');
           sheet
-              .getRangeByIndex(excelRow, 12 + c)
+              .getRangeByIndex(excelRow, 8 + c)
               .cellStyle
               .hAlign = xlsio.HAlignType.center;
         }
 
-        sheet.getRangeByIndex(excelRow, 28).setText(inspection.status);
-        sheet.getRangeByIndex(excelRow, 29).setText(inspection.impactCategory);
-        sheet.getRangeByIndex(excelRow, 30).setText(inspection.location);
-        sheet.getRangeByIndex(excelRow, 31).setText(inspection.inspectorComments);
+        sheet.getRangeByIndex(excelRow, 24).setText(inspection.status);
+        sheet.getRangeByIndex(excelRow, 25).setText(inspection.impactCategory);
+        sheet.getRangeByIndex(excelRow, 26).setText(inspection.location);
+        sheet.getRangeByIndex(excelRow, 27).setText(inspection.inspectorComments);
         sheet
-            .getRangeByIndex(excelRow, 32)
+            .getRangeByIndex(excelRow, 28)
             .setText(DateFormat('dd/MM/yyyy HH:mm').format(inspection.timestamp));
         sheet
-            .getRangeByIndex(excelRow, 33)
+            .getRangeByIndex(excelRow, 29)
             .setText(inspection.latitude?.toStringAsFixed(6) ?? '');
         sheet
-            .getRangeByIndex(excelRow, 34)
+            .getRangeByIndex(excelRow, 30)
             .setText(inspection.longitude?.toStringAsFixed(6) ?? '');
-        sheet.getRangeByIndex(excelRow, 35).setText(inspection.address ?? '');
+        sheet.getRangeByIndex(excelRow, 31).setText(inspection.address ?? '');
 
         final imagePath = inspection.primaryPhotoPath;
         if (imagePath.isNotEmpty) {
@@ -516,15 +499,15 @@ class _ExportScreenState extends State<ExportScreen> {
           if (await imgFile.exists()) {
             try {
               final bytes = await imgFile.readAsBytes();
-              final picture = sheet.pictures.addStream(excelRow, 36, bytes);
+              final picture = sheet.pictures.addStream(excelRow, 32, bytes);
               picture.width = 80;
               picture.height = 80;
               sheet.getRangeByIndex(excelRow, 1).rowHeight = 65;
             } catch (_) {
-              sheet.getRangeByIndex(excelRow, 36).setText('Image error');
+              sheet.getRangeByIndex(excelRow, 32).setText('Image error');
             }
           } else {
-            sheet.getRangeByIndex(excelRow, 36).setText('File missing');
+            sheet.getRangeByIndex(excelRow, 32).setText('File missing');
           }
         } else {
           sheet.getRangeByIndex(excelRow, 36).setText('No image');

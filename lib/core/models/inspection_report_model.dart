@@ -3,6 +3,7 @@ import 'dart:convert';
 class InspectionReportModel {
   final String id;
   final String userId;
+  final String sessionId;
   final String itemNumber;
   final List<String> photoPaths;
   final String defectType;
@@ -11,18 +12,13 @@ class InspectionReportModel {
   final String inspectorComments;
   final String impactCategory;
   final String status;
-  final String projectName;
-  final String projectCode;
-  final String projectSiteLocation;
-  final String reportNumber;
-  // New report-template fields
   final String refNo;
   final String section;
   final bool scopeInternal;
   final bool scopeExternal;
   final bool scopeME;
   final bool scopePublicFacilities;
-  final List<String> selectedDefectCodes; // all ticked codes e.g. ['FC1','D2']
+  final List<String> selectedDefectCodes;
   final double? latitude;
   final double? longitude;
   final String? address;
@@ -32,6 +28,7 @@ class InspectionReportModel {
   InspectionReportModel({
     required this.id,
     required this.userId,
+    required this.sessionId,
     required this.itemNumber,
     required this.photoPaths,
     required this.defectType,
@@ -40,10 +37,6 @@ class InspectionReportModel {
     required this.inspectorComments,
     required this.impactCategory,
     required this.status,
-    required this.projectName,
-    required this.projectCode,
-    required this.projectSiteLocation,
-    required this.reportNumber,
     this.refNo = '',
     this.section = '',
     this.scopeInternal = false,
@@ -64,6 +57,7 @@ class InspectionReportModel {
     return {
       'id': id,
       'user_id': userId,
+      'session_id': sessionId,
       'item_number': itemNumber,
       'photo_path': primaryPhotoPath,
       'photo_paths': jsonEncode(photoPaths),
@@ -73,10 +67,6 @@ class InspectionReportModel {
       'inspector_comments': inspectorComments,
       'impact_category': impactCategory,
       'status': status,
-      'project_name': projectName,
-      'project_code': projectCode,
-      'project_site_location': projectSiteLocation,
-      'report_number': reportNumber,
       'ref_no': refNo,
       'section': section,
       'scope_internal': scopeInternal ? 1 : 0,
@@ -127,6 +117,7 @@ class InspectionReportModel {
     return InspectionReportModel(
       id: map['id'] as String,
       userId: map['user_id'] as String,
+      sessionId: map['session_id'] as String? ?? '',
       itemNumber: map['item_number'] as String,
       photoPaths: parsedPhotoPaths,
       defectType: (map['defect_type'] ?? 'General') as String,
@@ -135,10 +126,6 @@ class InspectionReportModel {
       inspectorComments: (map['inspector_comments'] ?? '') as String,
       impactCategory: (map['impact_category'] ?? 'Minor') as String,
       status: (map['status'] ?? 'No Defect') as String,
-      projectName: (map['project_name'] ?? '') as String,
-      projectCode: (map['project_code'] ?? '') as String,
-      projectSiteLocation: (map['project_site_location'] ?? '') as String,
-      reportNumber: (map['report_number'] ?? '') as String,
       refNo: (map['ref_no'] ?? '') as String,
       section: (map['section'] ?? '') as String,
       scopeInternal: (map['scope_internal'] ?? 0) == 1,
@@ -159,6 +146,7 @@ class InspectionReportModel {
   InspectionReportModel copyWith({
     String? id,
     String? userId,
+    String? sessionId,
     String? itemNumber,
     List<String>? photoPaths,
     String? defectType,
@@ -167,10 +155,6 @@ class InspectionReportModel {
     String? inspectorComments,
     String? impactCategory,
     String? status,
-    String? projectName,
-    String? projectCode,
-    String? projectSiteLocation,
-    String? reportNumber,
     String? refNo,
     String? section,
     bool? scopeInternal,
@@ -187,6 +171,7 @@ class InspectionReportModel {
     return InspectionReportModel(
       id: id ?? this.id,
       userId: userId ?? this.userId,
+      sessionId: sessionId ?? this.sessionId,
       itemNumber: itemNumber ?? this.itemNumber,
       photoPaths: photoPaths ?? this.photoPaths,
       defectType: defectType ?? this.defectType,
@@ -195,10 +180,6 @@ class InspectionReportModel {
       inspectorComments: inspectorComments ?? this.inspectorComments,
       impactCategory: impactCategory ?? this.impactCategory,
       status: status ?? this.status,
-      projectName: projectName ?? this.projectName,
-      projectCode: projectCode ?? this.projectCode,
-      projectSiteLocation: projectSiteLocation ?? this.projectSiteLocation,
-      reportNumber: reportNumber ?? this.reportNumber,
       refNo: refNo ?? this.refNo,
       section: section ?? this.section,
       scopeInternal: scopeInternal ?? this.scopeInternal,

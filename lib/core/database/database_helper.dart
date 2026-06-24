@@ -5,9 +5,10 @@ import '../models/inspection_report_model.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'dilapidation_survey.db';
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 4;
 
   static const String usersTable = 'users';
+  static const String sessionsTable = 'sessions';
   static const String inspectionReportsTable = 'inspection_reports';
 
   static Database? _database;
@@ -42,9 +43,23 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
+      CREATE TABLE $sessionsTable (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        session_name TEXT NOT NULL,
+        project_name TEXT NOT NULL,
+        site_location TEXT NOT NULL,
+        inspection_date TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES $usersTable(id)
+      )
+    ''');
+
+    await db.execute('''
       CREATE TABLE $inspectionReportsTable (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
         item_number TEXT NOT NULL,
         photo_path TEXT NOT NULL,
         photo_paths TEXT NOT NULL,
@@ -54,10 +69,6 @@ class DatabaseHelper {
         inspector_comments TEXT NOT NULL,
         impact_category TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'No Defect',
-        project_name TEXT NOT NULL DEFAULT '',
-        project_code TEXT NOT NULL DEFAULT '',
-        project_site_location TEXT NOT NULL DEFAULT '',
-        report_number TEXT NOT NULL DEFAULT '',
         ref_no TEXT NOT NULL DEFAULT '',
         section TEXT NOT NULL DEFAULT '',
         scope_internal INTEGER DEFAULT 0,
@@ -70,12 +81,19 @@ class DatabaseHelper {
         address TEXT,
         timestamp TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
-        FOREIGN KEY(user_id) REFERENCES $usersTable(id)
+        FOREIGN KEY(user_id) REFERENCES $usersTable(id),
+        FOREIGN KEY(session_id) REFERENCES $sessionsTable(id)
       )
     ''');
 
     await db.execute('''
       CREATE INDEX idx_user_id ON $inspectionReportsTable(user_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX idx_session_id ON $inspectionReportsTable(session_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX idx_sessions_user_id ON $sessionsTable(user_id)
     ''');
   }
 
@@ -140,10 +158,143 @@ class DatabaseHelper {
         "ALTER TABLE $inspectionReportsTable ADD COLUMN selected_defect_codes TEXT NOT NULL DEFAULT '[]'",
       );
     }
+    if (oldVersion < 4) {
+      // Create sessions table
+      await db.execute('''
+        CREATE TABLE $sessionsTable (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          session_name TEXT NOT NULL,
+          project_name TEXT NOT NULL,
+          site_location TEXT NOT NULL,
+          inspection_date TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES $usersTable(id)
+        )
+      ''');
+
+      // Add session_id column to inspection_reports
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
+      );
+
+      // Create default sessions and migrate existing inspections
+      final users = await db.query(usersTable);
+      for (final userRow in users) {
+        final userId = userRow['id'] as String;
+        
+        // Get all inspections for this user
+        final inspections = await db.query(
+          inspectionReportsTable,
+          where: 'user_id = ?',
+          whereArgs: [userId],
+        );
+
+        if (inspections.isNotEmpty) {
+          // Create a default session for existing inspections
+          final sessionId = 'session_${DateTime.now().millisecondsSinceEpoch}';
+          await db.insert(sessionsTable, {
+            'id': sessionId,
+            'user_id': userId,
+            'session_name': 'Default Session',
+            'project_name': 'Migrated',
+            'site_location': 'Migrated',
+            'inspection_date': DateTime.now().toIso8601String(),
+            'created_at': DateTime.now().toIso8601String(),
+          });
+
+          // Update inspections to reference this session
+          await db.update(
+            inspectionReportsTable,
+            {'session_id': sessionId},
+            where: 'user_id = ?',
+            whereArgs: [userId],
+          );
+        }
+      }
+
+      // Create indexes
+      await db.execute('''
+        CREATE INDEX idx_session_id ON $inspectionReportsTable(session_id)
+      ''');
+      await db.execute('''
+        CREATE INDEX idx_sessions_user_id ON $sessionsTable(user_id)
+      ''');
+    }
   }
 
   static Future<void> initDatabase() async {
     await database;
+  }
+
+  // Session operations
+  static Future<bool> createSession(Map<String, dynamic> sessionData) async {
+    try {
+      final db = await database;
+      await db.insert(
+        sessionsTable,
+        sessionData,
+        conflictAlgorithm: ConflictAlgorithm.fail,
+      );
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getSessionsByUserId(
+      String userId) async {
+    final db = await database;
+    return await db.query(
+      sessionsTable,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  static Future<Map<String, dynamic>?> getSessionById(String sessionId) async {
+    final db = await database;
+    final maps = await db.query(
+      sessionsTable,
+      where: 'id = ?',
+      whereArgs: [sessionId],
+      limit: 1,
+    );
+
+    if (maps.isNotEmpty) {
+      return maps.first;
+    }
+    return null;
+  }
+
+  static Future<bool> updateSession(Map<String, dynamic> sessionData) async {
+    try {
+      final db = await database;
+      final changes = await db.update(
+        sessionsTable,
+        sessionData,
+        where: 'id = ?',
+        whereArgs: [sessionData['id']],
+      );
+      return changes > 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> deleteSession(String sessionId) async {
+    try {
+      final db = await database;
+      await db.delete(
+        sessionsTable,
+        where: 'id = ?',
+        whereArgs: [sessionId],
+      );
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   // User operations
@@ -207,12 +358,38 @@ class DatabaseHelper {
   }
 
   static Future<List<InspectionReportModel>> getInspectionsByUserId(
-      String userId) async {
+    String userId, {
+    String? sessionId,
+  }) async {
+    final db = await database;
+    String where = 'user_id = ?';
+    List<dynamic> whereArgs = [userId];
+
+    if (sessionId != null) {
+      where += ' AND session_id = ?';
+      whereArgs.add(sessionId);
+    }
+
+    final maps = await db.query(
+      inspectionReportsTable,
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+    );
+
+    return List.generate(
+      maps.length,
+      (i) => InspectionReportModel.fromMap(maps[i]),
+    );
+  }
+
+  static Future<List<InspectionReportModel>> getInspectionsBySessionId(
+      String sessionId) async {
     final db = await database;
     final maps = await db.query(
       inspectionReportsTable,
-      where: 'user_id = ?',
-      whereArgs: [userId],
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
       orderBy: 'timestamp DESC',
     );
 

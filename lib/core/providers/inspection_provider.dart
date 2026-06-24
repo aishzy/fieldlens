@@ -6,11 +6,13 @@ import '../models/inspection_report_model.dart';
 
 class InspectionProvider extends ChangeNotifier {
   String _currentUserId = '';
+  String _currentSessionId = '';
   List<InspectionReportModel> _inspections = [];
   bool _isLoading = false;
   String? _error;
 
   String get currentUserId => _currentUserId;
+  String get currentSessionId => _currentSessionId;
   List<InspectionReportModel> get inspections => _inspections;
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -18,20 +20,29 @@ class InspectionProvider extends ChangeNotifier {
 
   void setCurrentUserId(String userId) {
     _currentUserId = userId;
-    if (userId.isNotEmpty) {
+  }
+
+  void setCurrentSession(String sessionId) {
+    _currentSessionId = sessionId;
+    if (sessionId.isNotEmpty) {
       loadInspections();
     }
   }
 
   Future<void> loadInspections() async {
-    if (_currentUserId.isEmpty) return;
+    if (_currentSessionId.isEmpty) {
+      _inspections = [];
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
 
     _isLoading = true;
     notifyListeners();
 
     try {
       _inspections =
-          await DatabaseHelper.getInspectionsByUserId(_currentUserId);
+          await DatabaseHelper.getInspectionsBySessionId(_currentSessionId);
       _error = null;
     } catch (e) {
       _error = 'Failed to load inspections: ${e.toString()}';
@@ -42,6 +53,7 @@ class InspectionProvider extends ChangeNotifier {
   }
 
   Future<bool> saveInspection({
+    required String sessionId,
     required String itemNumber,
     required List<String> photoPaths,
     required String defectType,
@@ -50,9 +62,6 @@ class InspectionProvider extends ChangeNotifier {
     required String inspectorComments,
     required String impactCategory,
     required String status,
-    required String projectName,
-    required String projectCode,
-    required String projectSiteLocation,
     DateTime? timestamp,
     double? latitude,
     double? longitude,
@@ -71,11 +80,17 @@ class InspectionProvider extends ChangeNotifier {
       return false;
     }
 
+    if (sessionId.isEmpty) {
+      _error = 'No session selected';
+      notifyListeners();
+      return false;
+    }
+
     try {
-      final reportNumber = await DatabaseHelper.generateNextReportNumber();
       final inspection = InspectionReportModel(
         id: const Uuid().v4(),
         userId: _currentUserId,
+        sessionId: sessionId,
         itemNumber: itemNumber,
         photoPaths: photoPaths,
         defectType: defectType,
@@ -84,10 +99,6 @@ class InspectionProvider extends ChangeNotifier {
         inspectorComments: inspectorComments,
         impactCategory: impactCategory,
         status: status,
-        projectName: projectName,
-        projectCode: projectCode,
-        projectSiteLocation: projectSiteLocation,
-        reportNumber: reportNumber,
         refNo: refNo,
         section: section,
         scopeInternal: scopeInternal,
