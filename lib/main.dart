@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/database/database_helper.dart';
 import 'core/providers/auth_provider.dart';
-import 'core/providers/session_provider.dart';
 import 'core/providers/inspection_provider.dart';
 import 'ui/screens/auth/login_screen.dart';
 import 'ui/screens/dashboard/dashboard_screen.dart';
@@ -23,13 +22,6 @@ class DilapidationSurveyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(
           create: (_) => AuthProvider(),
-        ),
-        ChangeNotifierProxyProvider<AuthProvider, SessionProvider>(
-          create: (_) => SessionProvider(),
-          update: (_, authProvider, sessionProvider) {
-            sessionProvider?.setCurrentUserId(authProvider.currentUser?.id ?? '');
-            return sessionProvider ?? SessionProvider();
-          },
         ),
         ChangeNotifierProxyProvider<AuthProvider, InspectionProvider>(
           create: (_) => InspectionProvider(),

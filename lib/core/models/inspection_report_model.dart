@@ -3,7 +3,6 @@ import 'dart:convert';
 class InspectionReportModel {
   final String id;
   final String userId;
-  final String sessionId;
   final String itemNumber;
   final List<String> photoPaths;
   final String defectType;
@@ -28,7 +27,6 @@ class InspectionReportModel {
   InspectionReportModel({
     required this.id,
     required this.userId,
-    required this.sessionId,
     required this.itemNumber,
     required this.photoPaths,
     required this.defectType,
@@ -57,7 +55,6 @@ class InspectionReportModel {
     return {
       'id': id,
       'user_id': userId,
-      'session_id': sessionId,
       'item_number': itemNumber,
       'photo_path': primaryPhotoPath,
       'photo_paths': jsonEncode(photoPaths),
@@ -117,7 +114,6 @@ class InspectionReportModel {
     return InspectionReportModel(
       id: map['id'] as String,
       userId: map['user_id'] as String,
-      sessionId: map['session_id'] as String? ?? '',
       itemNumber: map['item_number'] as String,
       photoPaths: parsedPhotoPaths,
       defectType: (map['defect_type'] ?? 'General') as String,
@@ -146,7 +142,6 @@ class InspectionReportModel {
   InspectionReportModel copyWith({
     String? id,
     String? userId,
-    String? sessionId,
     String? itemNumber,
     List<String>? photoPaths,
     String? defectType,
@@ -171,7 +166,6 @@ class InspectionReportModel {
     return InspectionReportModel(
       id: id ?? this.id,
       userId: userId ?? this.userId,
-      sessionId: sessionId ?? this.sessionId,
       itemNumber: itemNumber ?? this.itemNumber,
       photoPaths: photoPaths ?? this.photoPaths,
       defectType: defectType ?? this.defectType,

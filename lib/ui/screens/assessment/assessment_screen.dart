@@ -7,7 +7,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/inspection_provider.dart';
-import '../../../core/providers/session_provider.dart';
 
 class AssessmentScreen extends StatefulWidget {
   final InspectionReportModel? existingInspection;
@@ -374,18 +373,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
 
     final inspectionProvider =
         Provider.of<InspectionProvider>(context, listen: false);
-    final sessionProvider =
-        Provider.of<SessionProvider>(context, listen: false);
-
-    final sessionId = sessionProvider.currentSessionId;
-    if (sessionId.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No session selected')),
-      );
-      setState(() => _isSaving = false);
-      return;
-    }
 
     final storedPhotoPaths = await _persistPhotosToAppStorage();
     final codes = _selectedDefectCodes.toList();
@@ -408,7 +395,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     final existing = widget.existingInspection;
     if (existing == null) {
       success = await inspectionProvider.saveInspection(
-        sessionId: sessionId,
         itemNumber: _itemNumberController.text.trim(),
         photoPaths: storedPhotoPaths,
         defectType: defectType,

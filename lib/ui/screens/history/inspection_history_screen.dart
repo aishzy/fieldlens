@@ -123,7 +123,7 @@ class _InspectionHistoryScreenState extends State<InspectionHistoryScreen> {
               controller: _searchController,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                hintText: 'Search by project, status, location, comments',
+                hintText: 'Search by status, location, comments',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),

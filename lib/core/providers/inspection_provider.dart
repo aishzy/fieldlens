@@ -6,31 +6,26 @@ import '../models/inspection_report_model.dart';
 
 class InspectionProvider extends ChangeNotifier {
   String _currentUserId = '';
-  String _currentSessionId = '';
   List<InspectionReportModel> _inspections = [];
   bool _isLoading = false;
   String? _error;
 
   String get currentUserId => _currentUserId;
-  String get currentSessionId => _currentSessionId;
   List<InspectionReportModel> get inspections => _inspections;
   bool get isLoading => _isLoading;
   String? get error => _error;
   int get inspectionCount => _inspections.length;
 
   void setCurrentUserId(String userId) {
+    final changed = _currentUserId != userId;
     _currentUserId = userId;
-  }
-
-  void setCurrentSession(String sessionId) {
-    _currentSessionId = sessionId;
-    if (sessionId.isNotEmpty) {
+    if (changed) {
       loadInspections();
     }
   }
 
   Future<void> loadInspections() async {
-    if (_currentSessionId.isEmpty) {
+    if (_currentUserId.isEmpty) {
       _inspections = [];
       _isLoading = false;
       notifyListeners();
@@ -39,10 +34,8 @@ class InspectionProvider extends ChangeNotifier {
 
     _isLoading = true;
     notifyListeners();
-
     try {
-      _inspections =
-          await DatabaseHelper.getInspectionsBySessionId(_currentSessionId);
+      _inspections = await DatabaseHelper.getInspectionsByUserId(_currentUserId);
       _error = null;
     } catch (e) {
       _error = 'Failed to load inspections: ${e.toString()}';
@@ -53,7 +46,6 @@ class InspectionProvider extends ChangeNotifier {
   }
 
   Future<bool> saveInspection({
-    required String sessionId,
     required String itemNumber,
     required List<String> photoPaths,
     required String defectType,
@@ -80,17 +72,10 @@ class InspectionProvider extends ChangeNotifier {
       return false;
     }
 
-    if (sessionId.isEmpty) {
-      _error = 'No session selected';
-      notifyListeners();
-      return false;
-    }
-
     try {
       final inspection = InspectionReportModel(
         id: const Uuid().v4(),
         userId: _currentUserId,
-        sessionId: sessionId,
         itemNumber: itemNumber,
         photoPaths: photoPaths,
         defectType: defectType,
@@ -170,14 +155,6 @@ class InspectionProvider extends ChangeNotifier {
       _error = 'Error deleting inspection: ${e.toString()}';
       notifyListeners();
       return false;
-    }
-  }
-
-  int getInspectionCountBySessionId(String sessionId) {
-    try {
-      return _inspections.where((i) => i.sessionId == sessionId).length;
-    } catch (e) {
-      return 0;
     }
   }
 

@@ -1,14 +1,16 @@
+import 'dart:convert';
+
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
-import '../models/user_model.dart';
+
 import '../models/inspection_report_model.dart';
+import '../models/user_model.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'dilapidation_survey.db';
-  static const _databaseVersion = 4;
+  static const _databaseVersion = 5;
 
   static const String usersTable = 'users';
-  static const String sessionsTable = 'sessions';
   static const String inspectionReportsTable = 'inspection_reports';
 
   static Database? _database;
@@ -22,7 +24,7 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _databaseName);
 
-    return await openDatabase(
+    return openDatabase(
       path,
       version: _databaseVersion,
       onCreate: _onCreate,
@@ -30,36 +32,11 @@ class DatabaseHelper {
     );
   }
 
-  static Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE $usersTable (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        username TEXT NOT NULL UNIQUE,
-        inspector_id TEXT NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE $sessionsTable (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        session_name TEXT NOT NULL,
-        project_name TEXT NOT NULL,
-        site_location TEXT NOT NULL,
-        inspection_date TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES $usersTable(id)
-      )
-    ''');
-
+  static Future<void> _createInspectionTable(Database db) async {
     await db.execute('''
       CREATE TABLE $inspectionReportsTable (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
         item_number TEXT NOT NULL,
         photo_path TEXT NOT NULL,
         photo_paths TEXT NOT NULL,
@@ -81,20 +58,28 @@ class DatabaseHelper {
         address TEXT,
         timestamp TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
-        FOREIGN KEY(user_id) REFERENCES $usersTable(id),
-        FOREIGN KEY(session_id) REFERENCES $sessionsTable(id)
+        FOREIGN KEY(user_id) REFERENCES $usersTable(id)
       )
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_user_id ON $inspectionReportsTable(user_id)
+      CREATE INDEX idx_inspections_user_id ON $inspectionReportsTable(user_id)
     ''');
+  }
+
+  static Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
-      CREATE INDEX idx_session_id ON $inspectionReportsTable(session_id)
+      CREATE TABLE $usersTable (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        username TEXT NOT NULL UNIQUE,
+        inspector_id TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
     ''');
-    await db.execute('''
-      CREATE INDEX idx_sessions_user_id ON $sessionsTable(user_id)
-    ''');
+
+    await _createInspectionTable(db);
   }
 
   static Future<void> _onUpgrade(
@@ -110,18 +95,6 @@ class DatabaseHelper {
         "ALTER TABLE $inspectionReportsTable ADD COLUMN status TEXT NOT NULL DEFAULT 'No Defect'",
       );
       await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN project_name TEXT NOT NULL DEFAULT ''",
-      );
-      await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN project_code TEXT NOT NULL DEFAULT ''",
-      );
-      await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN project_site_location TEXT NOT NULL DEFAULT ''",
-      );
-      await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN report_number TEXT NOT NULL DEFAULT ''",
-      );
-      await db.execute(
         "ALTER TABLE $inspectionReportsTable ADD COLUMN latitude REAL",
       );
       await db.execute(
@@ -130,11 +103,11 @@ class DatabaseHelper {
       await db.execute(
         "ALTER TABLE $inspectionReportsTable ADD COLUMN address TEXT",
       );
-
       await db.execute(
         "UPDATE $inspectionReportsTable SET photo_paths = '[\"' || REPLACE(photo_path, '\"', '\\\"') || '\"]' WHERE photo_path IS NOT NULL AND photo_path != ''",
       );
     }
+
     if (oldVersion < 3) {
       await db.execute(
         "ALTER TABLE $inspectionReportsTable ADD COLUMN ref_no TEXT NOT NULL DEFAULT ''",
@@ -158,155 +131,100 @@ class DatabaseHelper {
         "ALTER TABLE $inspectionReportsTable ADD COLUMN selected_defect_codes TEXT NOT NULL DEFAULT '[]'",
       );
     }
-    if (oldVersion < 4) {
-      // Create sessions table
-      await db.execute('''
-        CREATE TABLE $sessionsTable (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          session_name TEXT NOT NULL,
-          project_name TEXT NOT NULL,
-          site_location TEXT NOT NULL,
-          inspection_date TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          FOREIGN KEY(user_id) REFERENCES $usersTable(id)
-        )
-      ''');
 
-      // Add session_id column to inspection_reports
+    if (oldVersion < 5) {
+      final inspections = await db.query(inspectionReportsTable);
+      await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy');
       await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
+        'ALTER TABLE $inspectionReportsTable RENAME TO ${inspectionReportsTable}_legacy',
       );
+      await _createInspectionTable(db);
 
-      // Create default sessions and migrate existing inspections
-      final users = await db.query(usersTable);
-      for (final userRow in users) {
-        final userId = userRow['id'] as String;
-        
-        // Get all inspections for this user
-        final inspections = await db.query(
+      for (final row in inspections) {
+        await db.insert(
           inspectionReportsTable,
-          where: 'user_id = ?',
-          whereArgs: [userId],
+          _migrateInspectionRow(row),
         );
-
-        if (inspections.isNotEmpty) {
-          // Create a default session for existing inspections
-          final sessionId = 'session_${DateTime.now().millisecondsSinceEpoch}';
-          await db.insert(sessionsTable, {
-            'id': sessionId,
-            'user_id': userId,
-            'session_name': 'Default Session',
-            'project_name': 'Migrated',
-            'site_location': 'Migrated',
-            'inspection_date': DateTime.now().toIso8601String(),
-            'created_at': DateTime.now().toIso8601String(),
-          });
-
-          // Update inspections to reference this session
-          await db.update(
-            inspectionReportsTable,
-            {'session_id': sessionId},
-            where: 'user_id = ?',
-            whereArgs: [userId],
-          );
-        }
       }
 
-      // Create indexes
-      await db.execute('''
-        CREATE INDEX idx_session_id ON $inspectionReportsTable(session_id)
-      ''');
-      await db.execute('''
-        CREATE INDEX idx_sessions_user_id ON $sessionsTable(user_id)
-      ''');
+      await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy');
+      await db.execute('DROP TABLE IF EXISTS sessions');
     }
+  }
+
+  static Map<String, dynamic> _migrateInspectionRow(
+    Map<String, dynamic> row,
+  ) {
+    final photoPaths = _parseLegacyPhotoPaths(row);
+    final defectCodes = _parseLegacyList(row['selected_defect_codes']);
+
+    return {
+      'id': row['id'],
+      'user_id': row['user_id'],
+      'item_number': row['item_number'] ?? '',
+      'photo_path': photoPaths.isNotEmpty ? photoPaths.first : '',
+      'photo_paths': jsonEncode(photoPaths),
+      'defect_type': row['defect_type'] ?? 'General',
+      'defect_code': row['defect_code'] ?? 'ND0',
+      'location': row['location'] ?? '',
+      'inspector_comments': row['inspector_comments'] ?? '',
+      'impact_category': row['impact_category'] ?? 'Minor',
+      'status': row['status'] ?? 'No Defect',
+      'ref_no': row['ref_no'] ?? '',
+      'section': row['section'] ?? '',
+      'scope_internal': _boolInt(row['scope_internal']),
+      'scope_external': _boolInt(row['scope_external']),
+      'scope_me': _boolInt(row['scope_me']),
+      'scope_public_facilities': _boolInt(row['scope_public_facilities']),
+      'selected_defect_codes': jsonEncode(defectCodes),
+      'latitude': row['latitude'],
+      'longitude': row['longitude'],
+      'address': row['address'],
+      'timestamp': row['timestamp'] ?? DateTime.now().toIso8601String(),
+      'is_synced': _boolInt(row['is_synced']),
+    };
+  }
+
+  static List<String> _parseLegacyPhotoPaths(Map<String, dynamic> row) {
+    final rawPhotoPaths = row['photo_paths'];
+    if (rawPhotoPaths is String && rawPhotoPaths.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawPhotoPaths);
+        if (decoded is List) {
+          return decoded.map((e) => e.toString()).toList();
+        }
+      } catch (_) {}
+    }
+
+    final legacyPhotoPath = row['photo_path'];
+    if (legacyPhotoPath is String && legacyPhotoPath.isNotEmpty) {
+      return [legacyPhotoPath];
+    }
+
+    return const [];
+  }
+
+  static List<String> _parseLegacyList(dynamic value) {
+    if (value is String && value.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is List) {
+          return decoded.map((e) => e.toString()).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
+  }
+
+  static int _boolInt(dynamic value) {
+    if (value == true || value == 1) return 1;
+    return 0;
   }
 
   static Future<void> initDatabase() async {
     await database;
   }
 
-  // Session operations
-  static Future<bool> createSession(Map<String, dynamic> sessionData) async {
-    try {
-      final db = await database;
-      await db.insert(
-        sessionsTable,
-        sessionData,
-        conflictAlgorithm: ConflictAlgorithm.fail,
-      );
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  static Future<List<Map<String, dynamic>>> getSessionsByUserId(
-      String userId) async {
-    final db = await database;
-    return await db.query(
-      sessionsTable,
-      where: 'user_id = ?',
-      whereArgs: [userId],
-      orderBy: 'created_at DESC',
-    );
-  }
-
-  static Future<Map<String, dynamic>?> getSessionById(String sessionId) async {
-    final db = await database;
-    final maps = await db.query(
-      sessionsTable,
-      where: 'id = ?',
-      whereArgs: [sessionId],
-      limit: 1,
-    );
-
-    if (maps.isNotEmpty) {
-      return maps.first;
-    }
-    return null;
-  }
-
-  static Future<bool> updateSession(Map<String, dynamic> sessionData) async {
-    try {
-      final db = await database;
-      final changes = await db.update(
-        sessionsTable,
-        sessionData,
-        where: 'id = ?',
-        whereArgs: [sessionData['id']],
-      );
-      return changes > 0;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  static Future<bool> deleteSession(String sessionId) async {
-    try {
-      final db = await database;
-      
-      // First delete all inspections associated with this session
-      await db.delete(
-        inspectionReportsTable,
-        where: 'session_id = ?',
-        whereArgs: [sessionId],
-      );
-      
-      // Then delete the session
-      await db.delete(
-        sessionsTable,
-        where: 'id = ?',
-        whereArgs: [sessionId],
-      );
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // User operations
   static Future<bool> createUser(UserModel user) async {
     try {
       final db = await database;
@@ -316,7 +234,7 @@ class DatabaseHelper {
         conflictAlgorithm: ConflictAlgorithm.fail,
       );
       return true;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
@@ -329,11 +247,8 @@ class DatabaseHelper {
       whereArgs: [username],
       limit: 1,
     );
-
-    if (maps.isNotEmpty) {
-      return UserModel.fromMap(maps.first);
-    }
-    return null;
+    if (maps.isEmpty) return null;
+    return UserModel.fromMap(maps.first);
   }
 
   static Future<UserModel?> getUserById(String id) async {
@@ -344,14 +259,10 @@ class DatabaseHelper {
       whereArgs: [id],
       limit: 1,
     );
-
-    if (maps.isNotEmpty) {
-      return UserModel.fromMap(maps.first);
-    }
-    return null;
+    if (maps.isEmpty) return null;
+    return UserModel.fromMap(maps.first);
   }
 
-  // Inspection operations
   static Future<bool> saveInspectionReport(InspectionReportModel report) async {
     try {
       final db = await database;
@@ -361,47 +272,21 @@ class DatabaseHelper {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       return true;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
 
   static Future<List<InspectionReportModel>> getInspectionsByUserId(
-    String userId, {
-    String? sessionId,
-  }) async {
-    final db = await database;
-    String where = 'user_id = ?';
-    List<dynamic> whereArgs = [userId];
-
-    if (sessionId != null) {
-      where += ' AND session_id = ?';
-      whereArgs.add(sessionId);
-    }
-
-    final maps = await db.query(
-      inspectionReportsTable,
-      where: where,
-      whereArgs: whereArgs,
-      orderBy: 'timestamp DESC',
-    );
-
-    return List.generate(
-      maps.length,
-      (i) => InspectionReportModel.fromMap(maps[i]),
-    );
-  }
-
-  static Future<List<InspectionReportModel>> getInspectionsBySessionId(
-      String sessionId) async {
+    String userId,
+  ) async {
     final db = await database;
     final maps = await db.query(
       inspectionReportsTable,
-      where: 'session_id = ?',
-      whereArgs: [sessionId],
+      where: 'user_id = ?',
+      whereArgs: [userId],
       orderBy: 'timestamp DESC',
     );
-
     return List.generate(
       maps.length,
       (i) => InspectionReportModel.fromMap(maps[i]),
@@ -414,7 +299,6 @@ class DatabaseHelper {
       inspectionReportsTable,
       orderBy: 'timestamp DESC',
     );
-
     return List.generate(
       maps.length,
       (i) => InspectionReportModel.fromMap(maps[i]),
@@ -445,7 +329,8 @@ class DatabaseHelper {
   }
 
   static Future<bool> updateInspectionReport(
-      InspectionReportModel report) async {
+    InspectionReportModel report,
+  ) async {
     try {
       final db = await database;
       final changes = await db.update(
@@ -455,7 +340,7 @@ class DatabaseHelper {
         whereArgs: [report.id],
       );
       return changes > 0;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
@@ -469,7 +354,7 @@ class DatabaseHelper {
         whereArgs: [id],
       );
       return true;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
