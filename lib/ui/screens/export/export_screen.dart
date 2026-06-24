@@ -27,9 +27,20 @@ class _ExportScreenState extends State<ExportScreen> {
   static const _exportPresetPref = 'fieldlens_export_preset';
   static const _downloadsPreset = 'downloads';
   static const _documentsPreset = 'documents';
+  static const double _pdfPhotoWidthCm = 9.8;
+  static const double _pdfPhotoHeightCm = 8.8;
+  static const double _pdfPageMargin = 18;
+  static const double _pdfGridBorderWidth = 0.8;
 
   bool _isExporting = false;
   String _exportPreset = _downloadsPreset;
+
+  double get _pdfPhotoWidth => _pdfPhotoWidthCm * PdfPageFormat.cm;
+  double get _pdfPhotoHeight => _pdfPhotoHeightCm * PdfPageFormat.cm;
+  double get _pdfItemColumnWidth => 1.45 * PdfPageFormat.cm;
+  double get _pdfPhotoColumnWidth => _pdfPhotoWidth + 6;
+  double get _pdfTopRowHeight => _pdfPhotoHeight + 6;
+  double get _pdfBottomRowHeight => 56;
 
   @override
   void initState() {
@@ -107,47 +118,16 @@ class _ExportScreenState extends State<ExportScreen> {
         }),
       );
 
-      // Group by project name for section headers
-      final projectGroups = <String, List<_PreparedInspection>>{};
-      for (final p in prepared) {
-        final key = p.inspection.projectName.isNotEmpty
-            ? p.inspection.projectName
-            : 'Uncategorised';
-        projectGroups.putIfAbsent(key, () => []).add(p);
-      }
-
       final pdf = pw.Document();
 
-      for (final entry in projectGroups.entries) {
-        final projectName = entry.key;
-        final group = entry.value;
-        final sampleInspection = group.first.inspection;
-
+      final photoEntries = _expandPhotoEntries(prepared, user?.name, user?.inspectorId);
+      for (var start = 0; start < photoEntries.length; start += 2) {
+        final pageEntries = photoEntries.skip(start).take(2).toList();
         pdf.addPage(
-          pw.MultiPage(
+          pw.Page(
             pageFormat: PdfPageFormat.a4,
-            margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 28),
-            header: (_) => _buildPdfHeader(
-                projectName, sampleInspection, user?.name, user?.inspectorId),
-            footer: (ctx) => pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Generated: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
-                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-                ),
-                pw.Text(
-                  'Page ${ctx.pageNumber} of ${ctx.pagesCount}',
-                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-                ),
-              ],
-            ),
-            build: (_) => [
-              ...group
-                  .asMap()
-                  .entries
-                  .map((e) => _buildItemBlock(e.key + 1, e.value)),
-            ],
+            margin: const pw.EdgeInsets.all(_pdfPageMargin),
+            build: (_) => _buildPdfPage(pageEntries),
           ),
         );
       }
@@ -168,246 +148,135 @@ class _ExportScreenState extends State<ExportScreen> {
     }
   }
 
-  pw.Widget _buildPdfHeader(
-    String projectName,
-    InspectionReportModel sample,
-    String? inspectorName,
-    String? inspectorId,
-  ) {
-    final scopes = <String>[];
-    if (sample.scopeInternal) scopes.add('Internal');
-    if (sample.scopeExternal) scopes.add('External');
-    if (sample.scopeME) scopes.add('M&E');
-    if (sample.scopePublicFacilities) scopes.add('Public Facilities');
-
+  pw.Widget _buildPdfPage(List<_PreparedPhotoEntry> pageEntries) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Center(
-          child: pw.Text(
-            'DETAIL DILAPIDATION SURVEY REPORT',
-            style: pw.TextStyle(
-                fontSize: 14,
-                fontWeight: pw.FontWeight.bold,
-                letterSpacing: 1.5),
-          ),
-        ),
-        pw.SizedBox(height: 6),
-        pw.Container(
-          width: double.infinity,
-          padding: const pw.EdgeInsets.all(8),
-          decoration: pw.BoxDecoration(
-            border: pw.Border.all(color: PdfColors.grey400),
-          ),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              _pdfRow('Project', projectName),
-              _pdfRow('Site Location', sample.projectSiteLocation),
-              _pdfRow('Project Code', sample.projectCode),
-              _pdfRow('Inspector', '${inspectorName ?? 'N/A'} (ID: ${inspectorId ?? 'N/A'})'),
-              _pdfRow('Scope', scopes.isEmpty ? 'N/A' : scopes.join(' | ')),
-            ],
-          ),
-        ),
-        pw.SizedBox(height: 8),
-        pw.Container(
-          width: double.infinity,
-          color: PdfColors.blueGrey800,
-          padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-          child: pw.Row(
-            children: [
-              pw.SizedBox(
-                width: 36,
-                child: pw.Text('ITEM',
-                    style: pw.TextStyle(
-                        color: PdfColors.white,
-                        fontWeight: pw.FontWeight.bold,
-                        fontSize: 9)),
-              ),
-              pw.SizedBox(width: 4),
-              pw.Expanded(
-                flex: 3,
-                child: pw.Text('PHOTO',
-                    style: pw.TextStyle(
-                        color: PdfColors.white,
-                        fontWeight: pw.FontWeight.bold,
-                        fontSize: 9)),
-              ),
-              pw.SizedBox(width: 4),
-              pw.Expanded(
-                flex: 5,
-                child: pw.Text('ASSESSMENT TYPES',
-                    style: pw.TextStyle(
-                        color: PdfColors.white,
-                        fontWeight: pw.FontWeight.bold,
-                        fontSize: 9)),
-              ),
-            ],
-          ),
-        ),
-        pw.SizedBox(height: 4),
+        _buildGridHeaderRow(),
+        ...pageEntries.map(_buildItemBlock),
       ],
     );
   }
 
-  pw.Widget _pdfRow(String label, String value) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+  pw.Widget _buildGridHeaderRow() {
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(
+          color: PdfColors.black,
+          width: _pdfGridBorderWidth,
+        ),
+      ),
       child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.SizedBox(
-            width: 90,
-            child: pw.Text('$label:',
-                style: pw.TextStyle(
-                    fontSize: 9, fontWeight: pw.FontWeight.bold)),
-          ),
-          pw.Expanded(
-            child: pw.Text(value,
-                style: const pw.TextStyle(fontSize: 9)),
-          ),
+          _headerCell('ITEM', width: _pdfItemColumnWidth),
+          _headerCell('PHOTO', width: _pdfPhotoColumnWidth),
+          _headerCell('ASSESSMENT TYPES', expand: true),
         ],
       ),
     );
   }
 
-  pw.Widget _buildItemBlock(int itemNo, _PreparedInspection prepared) {
-    final inspection = prepared.inspection;
-    final codes = inspection.selectedDefectCodes;
-
-    // All possible codes per category
-    const wc = ['WC1', 'WC2', 'WC3', 'WC4'];
-    const fc = ['FC1', 'FC2', 'FC3', 'FC4'];
-    const b = ['B1', 'B2', 'B3', 'B4'];
-    const d = ['D1', 'D2', 'D3', 'D4'];
-
-    // Build assessment checkbox grid
-    pw.Widget checkRow(String label, List<String> codelist) {
-      return pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
-        child: pw.Row(
-          children: [
-            pw.SizedBox(
-              width: 28,
-              child: pw.Text(label,
-                  style: pw.TextStyle(
-                      fontSize: 8, fontWeight: pw.FontWeight.bold)),
-            ),
-            ...codelist.map((code) {
-              final ticked = codes.contains(code);
-              return pw.Padding(
-                padding: const pw.EdgeInsets.only(right: 6),
-                child: pw.Row(
-                  children: [
-                    pw.Container(
-                      width: 8,
-                      height: 8,
-                      decoration: pw.BoxDecoration(
-                        border: pw.Border.all(color: PdfColors.black, width: 0.8),
-                        color: ticked ? PdfColors.blue800 : PdfColors.white,
-                      ),
-                      child: ticked
-                          ? pw.Center(
-                              child: pw.Text('✓',
-                                  style: pw.TextStyle(
-                                      color: PdfColors.white, fontSize: 6)),
-                            )
-                          : null,
-                    ),
-                    pw.SizedBox(width: 2),
-                    pw.Text(code, style: const pw.TextStyle(fontSize: 8)),
-                  ],
-                ),
-              );
-            }),
-          ],
+  pw.Widget _headerCell(String text, {double? width, bool expand = false}) {
+    final child = pw.Container(
+      alignment: pw.Alignment.center,
+      height: 14,
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
-      );
-    }
-
-    final assessmentWidget = pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text('Crack (WC)',
-            style: pw.TextStyle(
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.blueGrey600)),
-        checkRow('', wc),
-        pw.SizedBox(height: 2),
-        pw.Text('Crack (FC)',
-            style: pw.TextStyle(
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.blueGrey600)),
-        checkRow('', fc),
-        pw.SizedBox(height: 2),
-        pw.Text('Bent',
-            style: pw.TextStyle(
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.blueGrey600)),
-        checkRow('', b),
-        pw.SizedBox(height: 2),
-        pw.Text('Damage',
-            style: pw.TextStyle(
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.blueGrey600)),
-        checkRow('', d),
-      ],
+      ),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+      ),
     );
 
-    // Impact checkboxes
-    pw.Widget impactCheckbox(String label, bool ticked) {
-      return pw.Padding(
-        padding: const pw.EdgeInsets.only(right: 10),
-        child: pw.Row(
-          children: [
-            pw.Container(
-              width: 8,
-              height: 8,
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.black, width: 0.8),
-                color: ticked ? PdfColors.blue800 : PdfColors.white,
-              ),
-              child: ticked
-                  ? pw.Center(
-                      child: pw.Text('✓',
-                          style: pw.TextStyle(
-                              color: PdfColors.white, fontSize: 6)))
-                  : null,
-            ),
-            pw.SizedBox(width: 3),
-            pw.Text(label, style: const pw.TextStyle(fontSize: 8)),
-          ],
+    if (expand) {
+      return pw.Expanded(
+        child: pw.Container(
+          height: 14,
+          alignment: pw.Alignment.center,
+          child: pw.Text(
+            text,
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+          ),
         ),
       );
     }
 
-    final impact = inspection.impactCategory;
-    final impactRow = pw.Row(children: [
-      pw.Text('Impact: ',
-          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-      impactCheckbox('Minor', impact == 'Minor'),
-      impactCheckbox('Moderate', impact == 'Moderate'),
-      impactCheckbox('Major', impact == 'Major'),
-    ]);
+    return pw.SizedBox(width: width, child: child);
+  }
 
-    // Build photo widget (first photo)
+  List<_PreparedPhotoEntry> _expandPhotoEntries(
+    List<_PreparedInspection> inspections,
+    String? inspectorName,
+    String? inspectorId,
+  ) {
+    final entries = <_PreparedPhotoEntry>[];
+
+    for (var index = 0; index < inspections.length; index++) {
+      final prepared = inspections[index];
+      final itemLabel = prepared.inspection.itemNumber.isNotEmpty
+          ? prepared.inspection.itemNumber
+          : (index + 1).toString();
+
+      if (prepared.allImageBytes.isEmpty) {
+        entries.add(
+          _PreparedPhotoEntry(
+            prepared: prepared,
+            itemLabel: itemLabel,
+            inspectorLabel: _buildInspectorLabel(inspectorName, inspectorId),
+          ),
+        );
+        continue;
+      }
+
+      for (var photoIndex = 0;
+          photoIndex < prepared.allImageBytes.length;
+          photoIndex++) {
+        entries.add(
+          _PreparedPhotoEntry(
+            prepared: prepared,
+            itemLabel: itemLabel,
+            inspectorLabel: _buildInspectorLabel(inspectorName, inspectorId),
+            imageBytes: prepared.allImageBytes[photoIndex],
+            photoIndex: photoIndex,
+            totalPhotos: prepared.allImageBytes.length,
+          ),
+        );
+      }
+    }
+
+    return entries;
+  }
+
+  String _buildInspectorLabel(String? inspectorName, String? inspectorId) {
+    final name = (inspectorName ?? '').trim();
+    final id = (inspectorId ?? '').trim();
+    if (name.isEmpty && id.isEmpty) return '';
+    if (name.isEmpty) return id;
+    if (id.isEmpty) return name;
+    return '$name ($id)';
+  }
+
+  pw.Widget _buildItemBlock(_PreparedPhotoEntry entry) {
+    final inspection = entry.prepared.inspection;
+    final assessmentWidget = _buildAssessmentCell(
+      inspection.selectedDefectCodes.toSet(),
+    );
+
     pw.Widget photoWidget;
-    if (prepared.allImageBytes.isNotEmpty) {
+    if (entry.imageBytes != null) {
       photoWidget = pw.Image(
-        pw.MemoryImage(prepared.allImageBytes.first),
-        width: 130,
-        height: 130,
+        pw.MemoryImage(entry.imageBytes!),
+        width: _pdfPhotoWidth,
+        height: _pdfPhotoHeight,
         fit: pw.BoxFit.cover,
       );
     } else {
       photoWidget = pw.Container(
-        width: 130,
-        height: 130,
+        width: _pdfPhotoWidth,
+        height: _pdfPhotoHeight,
         alignment: pw.Alignment.center,
         color: PdfColors.grey200,
         child: pw.Text('No Image',
@@ -415,117 +284,31 @@ class _ExportScreenState extends State<ExportScreen> {
       );
     }
 
-    // Extra photos below
-    final extraPhotos = prepared.allImageBytes.skip(1).toList();
-
     return pw.Container(
-      margin: const pw.EdgeInsets.only(bottom: 10),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey400),
+        border: const pw.Border(
+          left: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          bottom: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
       ),
       child: pw.Column(
         children: [
-          // Main row: Item | Photo | Assessment
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-                // Item number cell
-                pw.Container(
-                  width: 36,
-                  padding: const pw.EdgeInsets.all(6),
-                  decoration: const pw.BoxDecoration(
-                    border: pw.Border(
-                        right: pw.BorderSide(color: PdfColors.grey400)),
-                  ),
-                  child: pw.Center(
-                    child: pw.Text(
-                      '$itemNo',
-                      style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold, fontSize: 12),
-                    ),
-                  ),
-                ),
-                // Photo cell
-                pw.Container(
-                  padding: const pw.EdgeInsets.all(6),
-                  decoration: const pw.BoxDecoration(
-                    border: pw.Border(
-                        right: pw.BorderSide(color: PdfColors.grey400)),
-                  ),
-                  child: pw.Column(
-                    children: [
-                      photoWidget,
-                      if (extraPhotos.isNotEmpty) ...[
-                        pw.SizedBox(height: 4),
-                        pw.Wrap(
-                          children: extraPhotos
-                              .take(3)
-                              .map((bytes) => pw.Padding(
-                                    padding: const pw.EdgeInsets.only(right: 4),
-                                    child: pw.Image(
-                                      pw.MemoryImage(bytes),
-                                      width: 38,
-                                      height: 38,
-                                      fit: pw.BoxFit.cover,
-                                    ),
-                                  ))
-                              .toList(),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                // Assessment types cell
-                pw.Expanded(
-                  child: pw.Padding(
-                    padding: const pw.EdgeInsets.all(8),
-                    child: assessmentWidget,
-                  ),
-                ),
-              ],
-            ),
-          // Bottom row: Location | Inspector's comments | Impact
-          pw.Container(
-            decoration: const pw.BoxDecoration(
-              border: pw.Border(top: pw.BorderSide(color: PdfColors.grey400)),
-              color: PdfColors.grey100,
-            ),
-            padding:
-                const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('Location: ',
-                        style: pw.TextStyle(
-                            fontSize: 8, fontWeight: pw.FontWeight.bold)),
-                    pw.Expanded(
-                        child: pw.Text(inspection.location,
-                            style: const pw.TextStyle(fontSize: 8))),
-                  ],
-                ),
-                pw.SizedBox(height: 4),
-                pw.Text("Inspector's Comments:",
-                    style: pw.TextStyle(
-                        fontSize: 8, fontWeight: pw.FontWeight.bold)),
-                pw.Text(inspection.inspectorComments,
-                    style: const pw.TextStyle(fontSize: 8)),
-                pw.SizedBox(height: 4),
-                pw.Row(
-                  children: [
-                    impactRow,
-                    pw.Spacer(),
-                    pw.Text(
-                      'Date: ${DateFormat('dd/MM/yyyy HH:mm').format(inspection.timestamp)}',
-                      style: const pw.TextStyle(
-                          fontSize: 8, color: PdfColors.grey700),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              _buildTopItemCell(entry),
+              _buildTopPhotoCell(photoWidget),
+              pw.Expanded(child: _buildTopAssessmentCell(assessmentWidget)),
+            ],
+          ),
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _buildBottomLocationCell(inspection),
+              _buildBottomCommentsCell(entry, inspection),
+              pw.Expanded(child: _buildBottomImpactCell(inspection)),
+            ],
           ),
         ],
       ),
@@ -545,39 +328,33 @@ class _ExportScreenState extends State<ExportScreen> {
       final sheet = workbook.worksheets[0];
       sheet.name = 'Dilapidation Survey Report';
 
-      // ---- Build headers matching reference report columns ----
       final headers = [
-        'Report Number', // A
-        'Item No.', // B
-        'REF. NO.', // C
-        'Project Name', // D
-        'Project Code', // E
-        'Site Location', // F
-        'Section', // G
-        'Scope (Internal)', // H
-        'Scope (External)', // I
-        'Scope (M&E)', // J
-        'Scope (Public Fac.)', // K
-        // Crack (WC)
-        'WC1', 'WC2', 'WC3', 'WC4', // L-O
-        // Crack (FC)
-        'FC1', 'FC2', 'FC3', 'FC4', // P-S
-        // Bent
-        'B1', 'B2', 'B3', 'B4', // T-W
-        // Damage
-        'D1', 'D2', 'D3', 'D4', // X-AA
-        'Status', // AB
-        'Impact Category', // AC
-        'Location', // AD
-        "Inspector's Comments", // AE
-        'Date Time', // AF
-        'GPS Lat', // AG
-        'GPS Lng', // AH
-        'Address', // AI
-        'Photo', // AJ
+        'Report Number',
+        'Item No.',
+        'REF. NO.',
+        'Project Name',
+        'Project Code',
+        'Site Location',
+        'Section',
+        'Scope (Internal)',
+        'Scope (External)',
+        'Scope (M&E)',
+        'Scope (Public Fac.)',
+        'WC1', 'WC2', 'WC3', 'WC4',
+        'FC1', 'FC2', 'FC3', 'FC4',
+        'B1', 'B2', 'B3', 'B4',
+        'D1', 'D2', 'D3', 'D4',
+        'Status',
+        'Impact Category',
+        'Location',
+        "Inspector's Comments",
+        'Date Time',
+        'GPS Lat',
+        'GPS Lng',
+        'Address',
+        'Photo',
       ];
 
-      // Style the header row
       for (var i = 0; i < headers.length; i++) {
         final cell = sheet.getRangeByIndex(1, i + 1);
         cell.setText(headers[i]);
@@ -588,16 +365,13 @@ class _ExportScreenState extends State<ExportScreen> {
       }
 
       sheet.getRangeByIndex(1, 1, 1, headers.length).rowHeight = 36;
-
-      // Column widths
       for (var i = 1; i <= headers.length; i++) {
         sheet.getRangeByIndex(1, i).columnWidth = 12;
       }
-      // Wider for text-heavy columns
-      sheet.getRangeByIndex(1, 4).columnWidth = 24; // Project Name
-      sheet.getRangeByIndex(1, 31).columnWidth = 36; // Inspector Comments
-      sheet.getRangeByIndex(1, 30).columnWidth = 18; // Location
-      sheet.getRangeByIndex(1, headers.length).columnWidth = 14; // Photo
+      sheet.getRangeByIndex(1, 4).columnWidth = 24;
+      sheet.getRangeByIndex(1, 31).columnWidth = 36;
+      sheet.getRangeByIndex(1, 30).columnWidth = 18;
+      sheet.getRangeByIndex(1, headers.length).columnWidth = 14;
 
       for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
         final inspection = rows[rowIndex];
@@ -609,24 +383,15 @@ class _ExportScreenState extends State<ExportScreen> {
         sheet.getRangeByIndex(excelRow, 3).setText(inspection.refNo);
         sheet.getRangeByIndex(excelRow, 4).setText(inspection.projectName);
         sheet.getRangeByIndex(excelRow, 5).setText(inspection.projectCode);
-        sheet
-            .getRangeByIndex(excelRow, 6)
-            .setText(inspection.projectSiteLocation);
+        sheet.getRangeByIndex(excelRow, 6).setText(inspection.projectSiteLocation);
         sheet.getRangeByIndex(excelRow, 7).setText(inspection.section);
-        sheet
-            .getRangeByIndex(excelRow, 8)
-            .setText(inspection.scopeInternal ? '✓' : '');
-        sheet
-            .getRangeByIndex(excelRow, 9)
-            .setText(inspection.scopeExternal ? '✓' : '');
-        sheet
-            .getRangeByIndex(excelRow, 10)
-            .setText(inspection.scopeME ? '✓' : '');
+        sheet.getRangeByIndex(excelRow, 8).setText(inspection.scopeInternal ? '✓' : '');
+        sheet.getRangeByIndex(excelRow, 9).setText(inspection.scopeExternal ? '✓' : '');
+        sheet.getRangeByIndex(excelRow, 10).setText(inspection.scopeME ? '✓' : '');
         sheet
             .getRangeByIndex(excelRow, 11)
             .setText(inspection.scopePublicFacilities ? '✓' : '');
 
-        // Defect codes: columns 12-27
         const allCodeOrder = [
           'WC1', 'WC2', 'WC3', 'WC4',
           'FC1', 'FC2', 'FC3', 'FC4',
@@ -647,11 +412,10 @@ class _ExportScreenState extends State<ExportScreen> {
         sheet.getRangeByIndex(excelRow, 28).setText(inspection.status);
         sheet.getRangeByIndex(excelRow, 29).setText(inspection.impactCategory);
         sheet.getRangeByIndex(excelRow, 30).setText(inspection.location);
+        sheet.getRangeByIndex(excelRow, 31).setText(inspection.inspectorComments);
         sheet
-            .getRangeByIndex(excelRow, 31)
-            .setText(inspection.inspectorComments);
-        sheet.getRangeByIndex(excelRow, 32).setText(
-            DateFormat('dd/MM/yyyy HH:mm').format(inspection.timestamp));
+            .getRangeByIndex(excelRow, 32)
+            .setText(DateFormat('dd/MM/yyyy HH:mm').format(inspection.timestamp));
         sheet
             .getRangeByIndex(excelRow, 33)
             .setText(inspection.latitude?.toStringAsFixed(6) ?? '');
@@ -660,15 +424,13 @@ class _ExportScreenState extends State<ExportScreen> {
             .setText(inspection.longitude?.toStringAsFixed(6) ?? '');
         sheet.getRangeByIndex(excelRow, 35).setText(inspection.address ?? '');
 
-        // Photo embedding
         final imagePath = inspection.primaryPhotoPath;
         if (imagePath.isNotEmpty) {
           final imgFile = File(imagePath);
           if (await imgFile.exists()) {
             try {
               final bytes = await imgFile.readAsBytes();
-              final picture =
-                  sheet.pictures.addStream(excelRow, 36, bytes);
+              final picture = sheet.pictures.addStream(excelRow, 36, bytes);
               picture.width = 80;
               picture.height = 80;
               sheet.getRangeByIndex(excelRow, 1).rowHeight = 65;
@@ -682,7 +444,6 @@ class _ExportScreenState extends State<ExportScreen> {
           sheet.getRangeByIndex(excelRow, 36).setText('No image');
         }
 
-        // Wrap text for comment cell
         sheet.getRangeByIndex(excelRow, 31).cellStyle.wrapText = true;
       }
 
@@ -703,6 +464,322 @@ class _ExportScreenState extends State<ExportScreen> {
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
+  }
+
+  pw.Widget _buildTopItemCell(_PreparedPhotoEntry entry) {
+    return pw.Container(
+      width: _pdfItemColumnWidth,
+      height: _pdfTopRowHeight,
+      padding: const pw.EdgeInsets.only(left: 4, top: 4, right: 2),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
+      ),
+      alignment: pw.Alignment.topLeft,
+      child: pw.Text(
+        _formatItemLabel(entry.itemLabel),
+        style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold),
+      ),
+    );
+  }
+
+  pw.Widget _buildTopPhotoCell(pw.Widget photoWidget) {
+    return pw.Container(
+      width: _pdfPhotoColumnWidth,
+      height: _pdfTopRowHeight,
+      padding: const pw.EdgeInsets.all(3),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
+      ),
+      child: photoWidget,
+    );
+  }
+
+  pw.Widget _buildTopAssessmentCell(pw.Widget assessmentWidget) {
+    return pw.Container(
+      height: _pdfTopRowHeight,
+      child: assessmentWidget,
+    );
+  }
+
+  pw.Widget _buildBottomLocationCell(InspectionReportModel inspection) {
+    return pw.Container(
+      width: _pdfItemColumnWidth,
+      height: _pdfBottomRowHeight,
+      padding: const pw.EdgeInsets.fromLTRB(4, 2, 3, 2),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          top: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            'Location:',
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 2),
+          pw.Text(
+            inspection.location.isEmpty ? '-' : inspection.location,
+            style: const pw.TextStyle(fontSize: 7.8),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildBottomCommentsCell(
+    _PreparedPhotoEntry entry,
+    InspectionReportModel inspection,
+  ) {
+    final lines = _formatComments(inspection.inspectorComments);
+    return pw.Container(
+      width: _pdfPhotoColumnWidth,
+      height: _pdfBottomRowHeight,
+      padding: const pw.EdgeInsets.fromLTRB(6, 2, 6, 2),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          top: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            "Inspector's comments:",
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+          ),
+          if (lines.isNotEmpty) pw.SizedBox(height: 1.5),
+          ...lines.map(
+            (line) => pw.Text(
+              line,
+              style: const pw.TextStyle(fontSize: 7.7),
+              maxLines: 1,
+            ),
+          ),
+          if (entry.inspectorLabel.isNotEmpty) ...[
+            pw.SizedBox(height: 1.5),
+            pw.Text(
+              'Inspector: ${entry.inspectorLabel}',
+              style: const pw.TextStyle(fontSize: 7.1),
+              maxLines: 1,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildBottomImpactCell(InspectionReportModel inspection) {
+    return pw.Container(
+      height: _pdfBottomRowHeight,
+      padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          top: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            'Impact Category:',
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 2),
+          _buildImpactLine('Minor:', inspection.impactCategory == 'Minor'),
+          _buildImpactLine('Moderate:', inspection.impactCategory == 'Moderate'),
+          _buildImpactLine('Major:', inspection.impactCategory == 'Major'),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildAssessmentCell(Set<String> selectedCodes) {
+    return pw.Column(
+      children: [
+        pw.Expanded(
+          flex: 5,
+          child: _buildAssessmentSection(
+            title: 'Crack:',
+            leftCodes: const ['FC1', 'FC2', 'FC3', 'FC4'],
+            rightCodes: const ['WC1', 'WC2', 'WC3', 'WC4'],
+            selectedCodes: selectedCodes,
+            showBottomBorder: true,
+          ),
+        ),
+        pw.Expanded(
+          flex: 3,
+          child: _buildAssessmentSection(
+            title: 'Bent:',
+            leftCodes: const ['B1', 'B2'],
+            rightCodes: const ['B3', 'B4'],
+            selectedCodes: selectedCodes,
+            showBottomBorder: true,
+          ),
+        ),
+        pw.Expanded(
+          flex: 3,
+          child: _buildAssessmentSection(
+            title: 'Damage:',
+            leftCodes: const ['D1', 'D2'],
+            rightCodes: const ['D3', 'D4'],
+            selectedCodes: selectedCodes,
+            showBottomBorder: false,
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildAssessmentSection({
+    required String title,
+    required List<String> leftCodes,
+    required List<String> rightCodes,
+    required Set<String> selectedCodes,
+    required bool showBottomBorder,
+  }) {
+    final border = showBottomBorder
+        ? const pw.Border(
+            bottom: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          )
+        : null;
+
+    return pw.Container(
+      decoration: border == null ? null : pw.BoxDecoration(border: border),
+      padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            title,
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 1.5),
+          pw.Expanded(
+            child: pw.Row(
+              children: [
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.only(right: 4),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: leftCodes
+                          .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
+                          .toList(),
+                    ),
+                  ),
+                ),
+                pw.Container(width: _pdfGridBorderWidth, color: PdfColors.black),
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.only(left: 4),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: rightCodes
+                          .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
+                          .toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildAssessmentCodeLine(String code, bool selected) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 2),
+      child: pw.Row(
+        children: [
+          _buildCheckBox(selected),
+          pw.SizedBox(width: 3),
+          pw.Text(code, style: const pw.TextStyle(fontSize: 8.2)),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildImpactLine(String label, bool selected) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 1.5),
+      child: pw.Row(
+        children: [
+          pw.Expanded(
+            child: pw.Text(
+              label,
+              style: pw.TextStyle(fontSize: 8.3, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+          _buildCheckBox(selected),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildCheckBox(bool selected) {
+    return pw.Container(
+      width: 10,
+      height: 10,
+      decoration: pw.BoxDecoration(
+        color: selected ? PdfColors.green400 : PdfColors.grey300,
+        border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
+      ),
+      child: selected
+          ? pw.Center(
+              child: pw.Text(
+                '✓',
+                style: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 7,
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+
+  String _formatItemLabel(String itemLabel) {
+    final trimmed = itemLabel.trim();
+    if (trimmed.isEmpty) return '-';
+    return trimmed.endsWith('.') ? trimmed : '$trimmed.';
+  }
+
+  List<String> _formatComments(String comments) {
+    final normalized = comments
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    if (normalized.isEmpty) {
+      return const ['-'];
+    }
+
+    if (normalized.length > 1) {
+      return normalized
+          .asMap()
+          .entries
+          .take(3)
+          .map((entry) => '${entry.key + 1}. ${entry.value}')
+          .toList();
+    }
+
+    final value = normalized.first;
+    if (value.startsWith(RegExp(r'\d+\.'))) {
+      return [value];
+    }
+    return ['1. $value'];
   }
 
   Future<void> _shareFile(File file) async {
@@ -819,4 +896,22 @@ class _PreparedInspection {
   final List<Uint8List> allImageBytes;
 
   _PreparedInspection(this.inspection, this.allImageBytes);
+}
+
+class _PreparedPhotoEntry {
+  final _PreparedInspection prepared;
+  final String itemLabel;
+  final String inspectorLabel;
+  final Uint8List? imageBytes;
+  final int photoIndex;
+  final int totalPhotos;
+
+  _PreparedPhotoEntry({
+    required this.prepared,
+    required this.itemLabel,
+    this.inspectorLabel = '',
+    this.imageBytes,
+    this.photoIndex = 0,
+    this.totalPhotos = 0,
+  });
 }
