@@ -57,6 +57,13 @@ class InspectionProvider extends ChangeNotifier {
     double? latitude,
     double? longitude,
     String? address,
+    String refNo = '',
+    String section = '',
+    bool scopeInternal = false,
+    bool scopeExternal = false,
+    bool scopeME = false,
+    bool scopePublicFacilities = false,
+    List<String> selectedDefectCodes = const [],
   }) async {
     if (_currentUserId.isEmpty) {
       _error = 'No user logged in';
@@ -81,6 +88,13 @@ class InspectionProvider extends ChangeNotifier {
         projectCode: projectCode,
         projectSiteLocation: projectSiteLocation,
         reportNumber: reportNumber,
+        refNo: refNo,
+        section: section,
+        scopeInternal: scopeInternal,
+        scopeExternal: scopeExternal,
+        scopeME: scopeME,
+        scopePublicFacilities: scopePublicFacilities,
+        selectedDefectCodes: selectedDefectCodes,
         latitude: latitude,
         longitude: longitude,
         address: address,

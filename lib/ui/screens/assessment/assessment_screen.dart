@@ -24,10 +24,15 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   late TextEditingController _projectNameController;
   late TextEditingController _projectCodeController;
   late TextEditingController _projectSiteLocationController;
+  late TextEditingController _refNoController;
+  late TextEditingController _sectionController;
+  bool _scopeInternal = false;
+  bool _scopeExternal = false;
+  bool _scopeME = false;
+  bool _scopePublicFacilities = false;
 
   final List<String> _selectedPhotoPaths = [];
-  String? _selectedDefectType;
-  String? _selectedDefectCode;
+  final Set<String> _selectedDefectCodes = {};
   String? _selectedImpactCategory;
   String? _selectedStatus;
   double? _latitude;
@@ -38,11 +43,62 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
 
   final ImagePicker _imagePicker = ImagePicker();
 
-  final Map<String, List<String>> defectCodes = {
-    'Crack': ['FC1', 'FC2', 'FC3', 'FC4', 'WC1', 'WC2', 'WC3', 'WC4'],
-    'Bent': ['B1', 'B2', 'B3', 'B4'],
-    'Damage': ['D1', 'D2', 'D3', 'D4'],
+  // Each entry: code -> description (as shown in reference table)
+  static const Map<String, Map<String, String>> defectCodeInfo = {
+    'Crack (WC)': {
+      'WC1': 'Hairline crack. Width < 0.1mm',
+      'WC2': 'Fine crack. Width 0.1 – 0.3mm',
+      'WC3': 'Medium crack. Width 0.3 – 1.0mm',
+      'WC4': 'Wide crack. Width > 1.0mm',
+    },
+    'Crack (FC)': {
+      'FC1': 'Fine but noticeable cracks. Slab reasonably level.',
+      'FC2': 'Cracks noticeable. Slight displacement possible.',
+      'FC3': 'Cracks several mm wide. Possible tripping hazard.',
+      'FC4': 'Wide cracks > 5mm. Structural concern.',
+    },
+    'Bent (B)': {
+      'B1': 'Slight bending. Barely noticeable deflection.',
+      'B2': 'Noticeable bending. Deflection visible.',
+      'B3': 'Significant bending. Deflection > L/360.',
+      'B4': 'Severe bending. Structural integrity compromised.',
+    },
+    'Damage (D)': {
+      'D1': 'Surface damage only. Cosmetic issue.',
+      'D2': 'Moderate damage. Functionality slightly affected.',
+      'D3': 'Significant damage. Requires repair.',
+      'D4': 'Severe damage. Immediate action required.',
+    },
   };
+
+  // Flattened list of all codes grouped by category header
+  static const List<String> _allDefectCategories = [
+    'Crack (WC)',
+    'Crack (FC)',
+    'Bent (B)',
+    'Damage (D)',
+  ];
+
+  // Reference locations from building reference table
+  static const List<String> locationPresets = [
+    'B ME 1 – Basement M&E Room',
+    'B ME 2 – Basement M&E Pump Room',
+    'GF 1 – Ground Floor Lobby',
+    'GF 2 – Ground Floor Corridor',
+    'GF 3 – Ground Floor Toilet',
+    'L1 1 – Level 1 Classroom',
+    'L1 2 – Level 1 Corridor',
+    'L1 3 – Level 1 Office',
+    'L2 1 – Level 2 Classroom',
+    'L2 2 – Level 2 Corridor',
+    'L2 3 – Level 2 Office',
+    'RF 1 – Roof Floor',
+    'EX 1 – External Facade',
+    'EX 2 – External Perimeter Wall',
+    'P/F 1 – Parking / External',
+    'P/F 2 – Car Park Area',
+    'P/F 3 – Landscape Area',
+  ];
 
   final List<String> impactCategories = ['Minor', 'Moderate', 'Major'];
   final List<String> statusCategories = [
@@ -59,13 +115,20 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
 
   final List<String> presetComments = [
     'No defect observed. Area is in satisfactory condition.',
-    'Fine crack noticed at the road curb.',
+    'Hairline crack observed on wall/slab surface. Monitor for progression.',
+    'Fine crack noticed at road curb / pedestrian walkway. Slab reasonably level.',
+    'Wide crack observed. Significant displacement may be present.',
+    'Spalling of concrete cover exposing reinforcement bars.',
     'Sinkhole observed under the concrete walkway.',
+    'Surface deterioration and delamination detected.',
+    'Water seepage / staining observed on ceiling / wall surface.',
+    'Dampness and efflorescence observed. Possible water infiltration.',
     'Distribution Box (DB) found in good, stable condition.',
-    'Surface deterioration detected.',
-    'Minor spalling observed on concrete surface.',
-    'Significant settlement noted.',
-    'Water pooling in depression area.',
+    'Mechanical & Electrical (M&E) component in serviceable condition.',
+    'Settlement observed. Possible undermining of foundation.',
+    'Structural element shows signs of significant deflection.',
+    'Corrosion of exposed metallic element. Requires immediate treatment.',
+    'Incomplete works noted. To be completed as per contract.',
   ];
 
   @override
@@ -85,11 +148,14 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _projectSiteLocationController = TextEditingController(
       text: existing?.projectSiteLocation ?? '',
     );
+    _refNoController = TextEditingController(text: existing?.refNo ?? '');
+    _sectionController = TextEditingController(text: existing?.section ?? '');
+    _scopeInternal = existing?.scopeInternal ?? false;
+    _scopeExternal = existing?.scopeExternal ?? false;
+    _scopeME = existing?.scopeME ?? false;
+    _scopePublicFacilities = existing?.scopePublicFacilities ?? false;
 
-    _selectedDefectType =
-        existing?.defectType == 'General' ? null : existing?.defectType;
-    _selectedDefectCode =
-        existing?.defectCode == 'ND0' ? null : existing?.defectCode;
+    _selectedDefectCodes.addAll(existing?.selectedDefectCodes ?? []);
     _selectedImpactCategory =
         existing?.impactCategory ?? impactCategories.first;
     _selectedStatus = existing?.status ?? statusCategories.first;
@@ -110,6 +176,8 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _projectNameController.dispose();
     _projectCodeController.dispose();
     _projectSiteLocationController.dispose();
+    _refNoController.dispose();
+    _sectionController.dispose();
     super.dispose();
   }
 
@@ -337,14 +405,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       return;
     }
 
-    if (_selectedStatus != 'No Defect' &&
-        (_selectedDefectType == null || _selectedDefectCode == null)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select Defect Type and Code')),
-      );
-      return;
-    }
-
     if (_selectedImpactCategory == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select Impact Category')),
@@ -357,13 +417,23 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     final inspectionProvider =
         Provider.of<InspectionProvider>(context, listen: false);
     final storedPhotoPaths = await _persistPhotosToAppStorage();
-    final defectType = _selectedStatus == 'No Defect'
-        ? 'General'
-        : _selectedDefectType ?? 'General';
-    final defectCode =
-        _selectedStatus == 'No Defect' ? 'ND0' : _selectedDefectCode ?? 'ND0';
-    bool success;
+    final codes = _selectedDefectCodes.toList();
+    // Derive primary defect type and code from selected codes for backward compat
+    String defectType = 'General';
+    String defectCode = 'ND0';
+    if (codes.isNotEmpty) {
+      final first = codes.first;
+      if (first.startsWith('FC') || first.startsWith('WC')) {
+        defectType = 'Crack';
+      } else if (first.startsWith('B')) {
+        defectType = 'Bent';
+      } else if (first.startsWith('D')) {
+        defectType = 'Damage';
+      }
+      defectCode = first;
+    }
 
+    bool success;
     final existing = widget.existingInspection;
     if (existing == null) {
       success = await inspectionProvider.saveInspection(
@@ -382,6 +452,13 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         latitude: _latitude,
         longitude: _longitude,
         address: _address,
+        refNo: _refNoController.text.trim(),
+        section: _sectionController.text.trim(),
+        scopeInternal: _scopeInternal,
+        scopeExternal: _scopeExternal,
+        scopeME: _scopeME,
+        scopePublicFacilities: _scopePublicFacilities,
+        selectedDefectCodes: codes,
       );
     } else {
       success = await inspectionProvider.updateInspection(
@@ -401,6 +478,13 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           latitude: _latitude,
           longitude: _longitude,
           address: _address,
+          refNo: _refNoController.text.trim(),
+          section: _sectionController.text.trim(),
+          scopeInternal: _scopeInternal,
+          scopeExternal: _scopeExternal,
+          scopeME: _scopeME,
+          scopePublicFacilities: _scopePublicFacilities,
+          selectedDefectCodes: codes,
         ),
       );
       if (success) {
@@ -582,11 +666,57 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
               TextField(
                 controller: _itemNumberController,
                 decoration: InputDecoration(
-                  hintText: 'e.g., CH 165.2, LHS',
+                  hintText: 'e.g., 001',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
+              ),
+              const SizedBox(height: 24),
+
+              // REF.NO. & Section
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('REF. NO.',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _refNoController,
+                          decoration: InputDecoration(
+                            hintText: 'e.g., B ME 1',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Section',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _sectionController,
+                          decoration: InputDecoration(
+                            hintText: 'e.g., L / M / R',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
 
@@ -599,11 +729,28 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
               TextField(
                 controller: _locationController,
                 decoration: InputDecoration(
-                  hintText: 'e.g., Pusat Pengajian Maktab PAT',
+                  hintText: 'e.g., Ground Floor Lobby',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
+              ),
+              const SizedBox(height: 8),
+              Text('Quick Select', style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: locationPresets.map((loc) {
+                  return ActionChip(
+                    label: Text(loc, style: const TextStyle(fontSize: 11)),
+                    onPressed: () {
+                      setState(() {
+                        _locationController.text = loc;
+                      });
+                    },
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 24),
 
@@ -644,54 +791,134 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Defect Type
+              // Scope of Inspection
               Text(
-                'Assessment Type',
+                'Scope of Inspection',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: defectCodes.keys.map((type) {
-                  return ChoiceChip(
-                    label: Text(type),
-                    selected: _selectedDefectType == type,
-                    onSelected: (selected) {
-                      setState(() {
-                        _selectedDefectType = selected ? type : null;
-                        _selectedDefectCode = null;
-                      });
-                    },
-                  );
-                }).toList(),
+                spacing: 0,
+                runSpacing: 0,
+                children: [
+                  CheckboxMenuButton(
+                    value: _scopeInternal,
+                    onChanged: (v) =>
+                        setState(() => _scopeInternal = v ?? false),
+                    child: const Text('Internal'),
+                  ),
+                  CheckboxMenuButton(
+                    value: _scopeExternal,
+                    onChanged: (v) =>
+                        setState(() => _scopeExternal = v ?? false),
+                    child: const Text('External'),
+                  ),
+                  CheckboxMenuButton(
+                    value: _scopeME,
+                    onChanged: (v) => setState(() => _scopeME = v ?? false),
+                    child: const Text('M&E'),
+                  ),
+                  CheckboxMenuButton(
+                    value: _scopePublicFacilities,
+                    onChanged: (v) =>
+                        setState(() => _scopePublicFacilities = v ?? false),
+                    child: const Text('Public Facilities'),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
 
-              // Defect Code
-              if (_selectedDefectType != null) ...[
-                Text(
-                  'Defect Code',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: defectCodes[_selectedDefectType]!.map((code) {
-                    return ChoiceChip(
-                      label: Text(code),
-                      selected: _selectedDefectCode == code,
-                      onSelected: (selected) {
-                        setState(() {
-                          _selectedDefectCode = selected ? code : null;
-                        });
-                      },
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 24),
-              ],
+              // Assessment Types — checkbox grid per category
+              Text(
+                'Assessment Types',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Select all applicable defect codes',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              ...(_allDefectCategories.map((category) {
+                final codes = defectCodeInfo[category]!;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.12),
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(8),
+                        ),
+                      ),
+                      child: Text(
+                        category,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                            color: Theme.of(context).dividerColor),
+                        borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(8),
+                        ),
+                      ),
+                      child: Column(
+                        children: codes.entries.map((entry) {
+                          final code = entry.key;
+                          final desc = entry.value;
+                          return CheckboxListTile(
+                            dense: true,
+                            value: _selectedDefectCodes.contains(code),
+                            onChanged: (checked) {
+                              setState(() {
+                                if (checked == true) {
+                                  _selectedDefectCodes.add(code);
+                                } else {
+                                  _selectedDefectCodes.remove(code);
+                                }
+                              });
+                            },
+                            title: RichText(
+                              text: TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: '$code  ',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                  ),
+                                  TextSpan(
+                                    text: desc,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                );
+              }).toList()),
+              const SizedBox(height: 12),
 
               Text(
                 'Inspection Status',
@@ -709,8 +936,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                       setState(() {
                         _selectedStatus = selected ? status : null;
                         if (_selectedStatus == 'No Defect') {
-                          _selectedDefectType = null;
-                          _selectedDefectCode = null;
+                          _selectedDefectCodes.clear();
                         }
                       });
                     },

@@ -47,6 +47,7 @@ dependencies:
   excel: ^4.0.3
   pdf: ^3.10.0
   printing: ^5.11.0
+  syncfusion_flutter_xlsio: ^29.2.11
   
   # Camera
   camera: ^0.10.5

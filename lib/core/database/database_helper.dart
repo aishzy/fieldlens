@@ -5,7 +5,7 @@ import '../models/inspection_report_model.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'dilapidation_survey.db';
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 3;
 
   static const String usersTable = 'users';
   static const String inspectionReportsTable = 'inspection_reports';
@@ -58,6 +58,13 @@ class DatabaseHelper {
         project_code TEXT NOT NULL DEFAULT '',
         project_site_location TEXT NOT NULL DEFAULT '',
         report_number TEXT NOT NULL DEFAULT '',
+        ref_no TEXT NOT NULL DEFAULT '',
+        section TEXT NOT NULL DEFAULT '',
+        scope_internal INTEGER DEFAULT 0,
+        scope_external INTEGER DEFAULT 0,
+        scope_me INTEGER DEFAULT 0,
+        scope_public_facilities INTEGER DEFAULT 0,
+        selected_defect_codes TEXT NOT NULL DEFAULT '[]',
         latitude REAL,
         longitude REAL,
         address TEXT,
@@ -108,6 +115,29 @@ class DatabaseHelper {
 
       await db.execute(
         "UPDATE $inspectionReportsTable SET photo_paths = '[\"' || REPLACE(photo_path, '\"', '\\\"') || '\"]' WHERE photo_path IS NOT NULL AND photo_path != ''",
+      );
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN ref_no TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN section TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN scope_internal INTEGER DEFAULT 0",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN scope_external INTEGER DEFAULT 0",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN scope_me INTEGER DEFAULT 0",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN scope_public_facilities INTEGER DEFAULT 0",
+      );
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN selected_defect_codes TEXT NOT NULL DEFAULT '[]'",
       );
     }
   }

@@ -15,6 +15,14 @@ class InspectionReportModel {
   final String projectCode;
   final String projectSiteLocation;
   final String reportNumber;
+  // New report-template fields
+  final String refNo;
+  final String section;
+  final bool scopeInternal;
+  final bool scopeExternal;
+  final bool scopeME;
+  final bool scopePublicFacilities;
+  final List<String> selectedDefectCodes; // all ticked codes e.g. ['FC1','D2']
   final double? latitude;
   final double? longitude;
   final String? address;
@@ -36,6 +44,13 @@ class InspectionReportModel {
     required this.projectCode,
     required this.projectSiteLocation,
     required this.reportNumber,
+    this.refNo = '',
+    this.section = '',
+    this.scopeInternal = false,
+    this.scopeExternal = false,
+    this.scopeME = false,
+    this.scopePublicFacilities = false,
+    this.selectedDefectCodes = const [],
     this.latitude,
     this.longitude,
     this.address,
@@ -62,6 +77,13 @@ class InspectionReportModel {
       'project_code': projectCode,
       'project_site_location': projectSiteLocation,
       'report_number': reportNumber,
+      'ref_no': refNo,
+      'section': section,
+      'scope_internal': scopeInternal ? 1 : 0,
+      'scope_external': scopeExternal ? 1 : 0,
+      'scope_me': scopeME ? 1 : 0,
+      'scope_public_facilities': scopePublicFacilities ? 1 : 0,
+      'selected_defect_codes': jsonEncode(selectedDefectCodes),
       'latitude': latitude,
       'longitude': longitude,
       'address': address,
@@ -91,6 +113,17 @@ class InspectionReportModel {
       }
     }
 
+    List<String> parsedDefectCodes = [];
+    final rawDefectCodes = map['selected_defect_codes'];
+    if (rawDefectCodes is String && rawDefectCodes.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawDefectCodes);
+        if (decoded is List) {
+          parsedDefectCodes = decoded.map((e) => e.toString()).toList();
+        }
+      } catch (_) {}
+    }
+
     return InspectionReportModel(
       id: map['id'] as String,
       userId: map['user_id'] as String,
@@ -106,6 +139,13 @@ class InspectionReportModel {
       projectCode: (map['project_code'] ?? '') as String,
       projectSiteLocation: (map['project_site_location'] ?? '') as String,
       reportNumber: (map['report_number'] ?? '') as String,
+      refNo: (map['ref_no'] ?? '') as String,
+      section: (map['section'] ?? '') as String,
+      scopeInternal: (map['scope_internal'] ?? 0) == 1,
+      scopeExternal: (map['scope_external'] ?? 0) == 1,
+      scopeME: (map['scope_me'] ?? 0) == 1,
+      scopePublicFacilities: (map['scope_public_facilities'] ?? 0) == 1,
+      selectedDefectCodes: parsedDefectCodes,
       latitude:
           map['latitude'] is num ? (map['latitude'] as num).toDouble() : null,
       longitude:
@@ -131,6 +171,13 @@ class InspectionReportModel {
     String? projectCode,
     String? projectSiteLocation,
     String? reportNumber,
+    String? refNo,
+    String? section,
+    bool? scopeInternal,
+    bool? scopeExternal,
+    bool? scopeME,
+    bool? scopePublicFacilities,
+    List<String>? selectedDefectCodes,
     double? latitude,
     double? longitude,
     String? address,
@@ -152,6 +199,14 @@ class InspectionReportModel {
       projectCode: projectCode ?? this.projectCode,
       projectSiteLocation: projectSiteLocation ?? this.projectSiteLocation,
       reportNumber: reportNumber ?? this.reportNumber,
+      refNo: refNo ?? this.refNo,
+      section: section ?? this.section,
+      scopeInternal: scopeInternal ?? this.scopeInternal,
+      scopeExternal: scopeExternal ?? this.scopeExternal,
+      scopeME: scopeME ?? this.scopeME,
+      scopePublicFacilities:
+          scopePublicFacilities ?? this.scopePublicFacilities,
+      selectedDefectCodes: selectedDefectCodes ?? this.selectedDefectCodes,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       address: address ?? this.address,
