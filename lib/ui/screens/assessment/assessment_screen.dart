@@ -440,6 +440,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           scopeME: _scopeME,
           scopePublicFacilities: _scopePublicFacilities,
           selectedDefectCodes: codes,
+          inspectionMode: _inspectionMode,
         ),
       );
       if (success) {

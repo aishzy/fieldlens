@@ -127,20 +127,26 @@ class _ExportScreenState extends State<ExportScreen> {
       final pdf = pw.Document();
 
       final photoEntries = _expandPhotoEntries(prepared, user?.name, user?.inspectorId);
-      for (var start = 0; start < photoEntries.length; start += 2) {
-        final pageEntries = photoEntries.skip(start).take(2).toList();
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: pw.EdgeInsets.only(
-              left: _pdfPageMarginLeft,
-              right: _pdfPageMarginRight,
-              top: _pdfPageMarginTop,
-              bottom: _pdfPageMarginBottom,
+      // Group entries by mode to avoid mixing templates on the same page
+      final overallEntries = photoEntries.where((e) => e.prepared.inspection.isOverallMode).toList();
+      final defectEntries = photoEntries.where((e) => e.prepared.inspection.isDefectMode).toList();
+
+      for (final entryGroup in [overallEntries, defectEntries]) {
+        for (var start = 0; start < entryGroup.length; start += 2) {
+          final pageEntries = entryGroup.skip(start).take(2).toList();
+          pdf.addPage(
+            pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              margin: pw.EdgeInsets.only(
+                left: _pdfPageMarginLeft,
+                right: _pdfPageMarginRight,
+                top: _pdfPageMarginTop,
+                bottom: _pdfPageMarginBottom,
+              ),
+              build: (_) => _buildPdfPage(pageEntries),
             ),
-            build: (_) => _buildPdfPage(pageEntries),
-          ),
-        );
+          );
+        }
       }
 
       final output = await _resolveExportDirectory();
