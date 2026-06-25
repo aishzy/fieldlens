@@ -8,7 +8,7 @@ import '../models/user_model.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'dilapidation_survey.db';
-  static const _databaseVersion = 5;
+  static const _databaseVersion = 6;
 
   static const String usersTable = 'users';
   static const String inspectionReportsTable = 'inspection_reports';
@@ -58,6 +58,7 @@ class DatabaseHelper {
         address TEXT,
         timestamp TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
+        inspection_mode TEXT NOT NULL DEFAULT 'defect',
         FOREIGN KEY(user_id) REFERENCES $usersTable(id)
       )
     ''');
@@ -149,6 +150,12 @@ class DatabaseHelper {
 
       await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy');
       await db.execute('DROP TABLE IF EXISTS sessions');
+    }
+
+    if (oldVersion < 6) {
+      await db.execute(
+        "ALTER TABLE $inspectionReportsTable ADD COLUMN inspection_mode TEXT NOT NULL DEFAULT 'defect'",
+      );
     }
   }
 

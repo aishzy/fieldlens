@@ -23,6 +23,7 @@ class InspectionReportModel {
   final String? address;
   final DateTime timestamp;
   final bool isSynced;
+  final String inspectionMode; // 'overall' for Overall View, 'defect' for Defect Assessment
 
   InspectionReportModel({
     required this.id,
@@ -47,7 +48,11 @@ class InspectionReportModel {
     this.address,
     required this.timestamp,
     this.isSynced = false,
+    this.inspectionMode = 'defect', // default to defect assessment mode
   });
+
+  bool get isOverallMode => inspectionMode == 'overall';
+  bool get isDefectMode => inspectionMode == 'defect';
 
   String get primaryPhotoPath => photoPaths.isNotEmpty ? photoPaths.first : '';
 
@@ -76,6 +81,7 @@ class InspectionReportModel {
       'address': address,
       'timestamp': timestamp.toIso8601String(),
       'is_synced': isSynced ? 1 : 0,
+      'inspection_mode': inspectionMode,
     };
   }
 
@@ -136,6 +142,7 @@ class InspectionReportModel {
       address: map['address'] as String?,
       timestamp: DateTime.parse(map['timestamp'] as String),
       isSynced: (map['is_synced'] as int) == 1,
+      inspectionMode: (map['inspection_mode'] ?? 'defect') as String,
     );
   }
 
@@ -162,6 +169,7 @@ class InspectionReportModel {
     String? address,
     DateTime? timestamp,
     bool? isSynced,
+    String? inspectionMode,
   }) {
     return InspectionReportModel(
       id: id ?? this.id,
@@ -187,6 +195,7 @@ class InspectionReportModel {
       address: address ?? this.address,
       timestamp: timestamp ?? this.timestamp,
       isSynced: isSynced ?? this.isSynced,
+      inspectionMode: inspectionMode ?? this.inspectionMode,
     );
   }
 }

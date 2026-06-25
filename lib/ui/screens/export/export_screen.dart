@@ -29,7 +29,11 @@ class _ExportScreenState extends State<ExportScreen> {
   static const _documentsPreset = 'documents';
   static const double _pdfPhotoWidthCm = 9.8;
   static const double _pdfPhotoHeightCm = 8.8;
-  static const double _pdfPageMargin = 18;
+  // Page margin now includes binding gutter: 18px left (original) + 18px extra = 36px left margin
+  static const double _pdfPageMarginLeft = 36;
+  static const double _pdfPageMarginRight = 18;
+  static const double _pdfPageMarginTop = 18;
+  static const double _pdfPageMarginBottom = 18;
   static const double _pdfGridBorderWidth = 0.8;
 
   bool _isExporting = false;
@@ -128,7 +132,12 @@ class _ExportScreenState extends State<ExportScreen> {
         pdf.addPage(
           pw.Page(
             pageFormat: PdfPageFormat.a4,
-            margin: const pw.EdgeInsets.all(_pdfPageMargin),
+            margin: pw.EdgeInsets.only(
+              left: _pdfPageMarginLeft,
+              right: _pdfPageMarginRight,
+              top: _pdfPageMarginTop,
+              bottom: _pdfPageMarginBottom,
+            ),
             build: (_) => _buildPdfPage(pageEntries),
           ),
         );
@@ -151,16 +160,53 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   pw.Widget _buildPdfPage(List<_PreparedPhotoEntry> pageEntries) {
+    // Check if all entries on this page use overall mode or defect mode
+    // We need a unified header row - check first entry's mode
+    final firstEntry = pageEntries.first;
+    final isOverallPage = firstEntry.prepared.inspection.isOverallMode;
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        _buildGridHeaderRow(),
-        ...pageEntries.map(_buildItemBlock),
+        if (isOverallPage)
+          _buildOverallGridHeaderRow()
+        else
+          _buildDefectGridHeaderRow(),
+        ...pageEntries.map((entry) {
+          if (entry.prepared.inspection.isOverallMode) {
+            return _buildOverallItemBlock(entry);
+          } else {
+            return _buildDefectItemBlock(entry);
+          }
+        }),
       ],
     );
   }
 
-  pw.Widget _buildGridHeaderRow() {
+  // ================================================================
+  // TEMPLATE 1 - OVERALL VIEW HEADER (image_211c29.png style)
+  // ================================================================
+  pw.Widget _buildOverallGridHeaderRow() {
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(
+          color: PdfColors.black,
+          width: _pdfGridBorderWidth,
+        ),
+      ),
+      child: pw.Row(
+        children: [
+          _headerCell('ITEM', width: _pdfItemColumnWidth),
+          _headerCell('PHOTO', expand: true),
+        ],
+      ),
+    );
+  }
+
+  // ================================================================
+  // TEMPLATE 2 - DEFECT ASSESSMENT HEADER (image_211ca5.png style)
+  // ================================================================
+  pw.Widget _buildDefectGridHeaderRow() {
     return pw.Container(
       decoration: pw.BoxDecoration(
         border: pw.Border.all(
@@ -261,7 +307,156 @@ class _ExportScreenState extends State<ExportScreen> {
     return '$name ($id)';
   }
 
-  pw.Widget _buildItemBlock(_PreparedPhotoEntry entry) {
+  // ================================================================
+  // TEMPLATE 1 - OVERALL VIEW ITEM BLOCK
+  // Two columns: "ITEM" (Narrow) and "PHOTO" (Wide, spans rest)
+  // Bottom: "Location:" (Left) and "Inspector's comments:" (Right)
+  // ================================================================
+  pw.Widget _buildOverallItemBlock(_PreparedPhotoEntry entry) {
+    final inspection = entry.prepared.inspection;
+
+    pw.Widget photoWidget;
+    if (entry.imageBytes != null) {
+      photoWidget = pw.Image(
+        pw.MemoryImage(entry.imageBytes!),
+        width: _pdfPhotoWidth,
+        height: _pdfPhotoHeight,
+        fit: pw.BoxFit.cover,
+      );
+    } else {
+      photoWidget = pw.Container(
+        width: _pdfPhotoWidth,
+        height: _pdfPhotoHeight,
+        alignment: pw.Alignment.center,
+        color: PdfColors.grey200,
+        child: pw.Text('No Image',
+            style: const pw.TextStyle(color: PdfColors.grey600)),
+      );
+    }
+
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: const pw.Border(
+          left: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          bottom: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
+      ),
+      child: pw.Column(
+        children: [
+          // Top row: ITEM | PHOTO (full remaining width)
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _buildTopItemCell(entry),
+              // Photo spans remaining width (no assessment column)
+              pw.Expanded(
+                child: pw.Container(
+                  height: _pdfTopRowHeight,
+                  padding: const pw.EdgeInsets.all(3),
+                  decoration: const pw.BoxDecoration(
+                    border: pw.Border(
+                      right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+                    ),
+                  ),
+                  child: photoWidget,
+                ),
+              ),
+            ],
+          ),
+          // Bottom row: Location | Inspector's comments (both span full width)
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // "Location:" left side (proportional width ~30%)
+              pw.Expanded(
+                flex: 3,
+                child: pw.Container(
+                  height: _pdfBottomRowHeight,
+                  padding: const pw.EdgeInsets.fromLTRB(4, 2, 3, 2),
+                  decoration: const pw.BoxDecoration(
+                    border: pw.Border(
+                      top: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+                      right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+                    ),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Location:',
+                        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        _resolvedPdfLocation(inspection),
+                        style: const pw.TextStyle(fontSize: 7.8),
+                        maxLines: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // "Inspector's comments:" right side (remaining ~70%)
+              pw.Expanded(
+                flex: 7,
+                child: _buildOverallCommentsCell(entry, inspection),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildOverallCommentsCell(
+    _PreparedPhotoEntry entry,
+    InspectionReportModel inspection,
+  ) {
+    final lines = _formatComments(inspection.inspectorComments);
+    return pw.Container(
+      height: _pdfBottomRowHeight,
+      padding: const pw.EdgeInsets.fromLTRB(6, 2, 6, 2),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          top: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+        ),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            "Inspector's comments:",
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+          ),
+          if (lines.isNotEmpty) pw.SizedBox(height: 1.5),
+          ...lines.map(
+            (line) => pw.Text(
+              line,
+              style: const pw.TextStyle(fontSize: 7.7),
+              maxLines: 1,
+            ),
+          ),
+          if (entry.inspectorLabel.isNotEmpty) ...[
+            pw.SizedBox(height: 1.5),
+            pw.Text(
+              'Inspector: ${entry.inspectorLabel}',
+              style: const pw.TextStyle(fontSize: 7.1),
+              maxLines: 1,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ================================================================
+  // TEMPLATE 2 - DEFECT ASSESSMENT ITEM BLOCK
+  // Three columns: "ITEM", "PHOTO", "ASSESSMENT TYPES"
+  // Bottom: "Location:", "Inspector's comments:", "Impact Category:"
+  // ================================================================
+  pw.Widget _buildDefectItemBlock(_PreparedPhotoEntry entry) {
     final inspection = entry.prepared.inspection;
     final assessmentWidget = _buildAssessmentCell(
       inspection.selectedDefectCodes.toSet(),
@@ -353,6 +548,7 @@ class _ExportScreenState extends State<ExportScreen> {
        'GPS Lng',
        'Address',
        'Photo',
+       'Report Mode',
       ];
 
       for (var i = 0; i < headers.length; i++) {
@@ -439,6 +635,11 @@ class _ExportScreenState extends State<ExportScreen> {
         } else {
           sheet.getRangeByIndex(excelRow, 32).setText('No image');
         }
+
+        // Report Mode column
+        sheet
+            .getRangeByIndex(excelRow, 33)
+            .setText(inspection.isOverallMode ? 'Overall View' : 'Defect Assessment');
 
         sheet.getRangeByIndex(excelRow, 31).cellStyle.wrapText = true;
       }

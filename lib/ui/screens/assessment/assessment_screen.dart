@@ -37,6 +37,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   String? _address;
   DateTime? _photoCapturedAt;
   bool _isSaving = false;
+  String _inspectionMode = 'defect'; // 'overall' or 'defect'
 
   final ImagePicker _imagePicker = ImagePicker();
 
@@ -124,6 +125,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _scopeME = existing?.scopeME ?? false;
     _scopePublicFacilities = existing?.scopePublicFacilities ?? false;
 
+    _inspectionMode = existing?.inspectionMode ?? 'defect';
     _selectedDefectCodes.addAll(existing?.selectedDefectCodes ?? []);
     _selectedImpactCategory =
         existing?.impactCategory ?? impactCategories.first;
@@ -362,7 +364,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       return;
     }
 
-    if (_selectedImpactCategory == null) {
+    if (_inspectionMode == 'defect' && _selectedImpactCategory == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select Impact Category')),
       );
@@ -401,7 +403,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         defectCode: defectCode,
         location: _locationController.text.trim(),
         inspectorComments: _commentsController.text.trim(),
-        impactCategory: _selectedImpactCategory!,
+        impactCategory: _selectedImpactCategory ?? 'Minor',
         status: _selectedStatus!,
         timestamp: _photoCapturedAt ?? DateTime.now(),
         latitude: _latitude,
@@ -414,6 +416,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         scopeME: _scopeME,
         scopePublicFacilities: _scopePublicFacilities,
         selectedDefectCodes: codes,
+        inspectionMode: _inspectionMode,
       );
     } else {
       success = await inspectionProvider.updateInspection(
@@ -424,7 +427,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           defectCode: defectCode,
           location: _locationController.text.trim(),
           inspectorComments: _commentsController.text.trim(),
-          impactCategory: _selectedImpactCategory!,
+          impactCategory: _selectedImpactCategory ?? 'Minor',
           status: _selectedStatus!,
           timestamp: _photoCapturedAt ?? existing.timestamp,
           latitude: _latitude,
@@ -726,153 +729,201 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Assessment Types — checkbox grid per category
+              // Inspection Mode Selection
               Text(
-                'Assessment Types',
+                'Report Layout Mode',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 4),
               Text(
-                'Select all applicable defect codes',
+                'Choose the PDF report layout for this item',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 12),
-              ...(_allDefectCategories.map((category) {
-                final codes = defectCodeInfo[category]!;
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: 0.12),
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(8),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Overall View'),
+                    selected: _inspectionMode == 'overall',
+                    onSelected: widget.existingInspection != null
+                        ? null // Cannot change mode on existing items
+                        : (selected) {
+                            setState(() {
+                              _inspectionMode = 'overall';
+                              if (_inspectionMode == 'overall') {
+                                _selectedDefectCodes.clear();
+                                _selectedImpactCategory = null;
+                              }
+                            });
+                          },
+                  ),
+                  ChoiceChip(
+                    label: const Text('Defect Assessment'),
+                    selected: _inspectionMode == 'defect',
+                    onSelected: widget.existingInspection != null
+                        ? null
+                        : (selected) {
+                            setState(() {
+                              _inspectionMode = 'defect';
+                              _selectedImpactCategory ??= impactCategories.first;
+                            });
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Assessment Types — checkbox grid per category (only for Defect Mode)
+              if (_inspectionMode == 'defect') ...[
+                Text(
+                  'Assessment Types',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Select all applicable defect codes',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                ...(_allDefectCategories.map((category) {
+                  final codes = defectCodeInfo[category]!;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.12),
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          category,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      child: Text(
-                        category,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleSmall
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                            color: Theme.of(context).dividerColor),
-                        borderRadius: const BorderRadius.vertical(
-                          bottom: Radius.circular(8),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                              color: Theme.of(context).dividerColor),
+                          borderRadius: const BorderRadius.vertical(
+                            bottom: Radius.circular(8),
+                          ),
                         ),
-                      ),
-                      child: Column(
-                        children: codes.entries.map((entry) {
-                          final code = entry.key;
-                          final desc = entry.value;
-                          return CheckboxListTile(
-                            dense: true,
-                            value: _selectedDefectCodes.contains(code),
-                            onChanged: (checked) {
-                              setState(() {
-                                if (checked == true) {
-                                  _selectedDefectCodes.add(code);
-                                } else {
-                                  _selectedDefectCodes.remove(code);
-                                }
-                              });
-                            },
-                            title: RichText(
-                              text: TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: '$code  ',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                  ),
-                                  TextSpan(
-                                    text: desc,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                ],
+                        child: Column(
+                          children: codes.entries.map((entry) {
+                            final code = entry.key;
+                            final desc = entry.value;
+                            return CheckboxListTile(
+                              dense: true,
+                              value: _selectedDefectCodes.contains(code),
+                              onChanged: (checked) {
+                                setState(() {
+                                  if (checked == true) {
+                                    _selectedDefectCodes.add(code);
+                                  } else {
+                                    _selectedDefectCodes.remove(code);
+                                  }
+                                });
+                              },
+                              title: RichText(
+                                text: TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: '$code  ',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                    TextSpan(
+                                      text: desc,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        }).toList(),
+                            );
+                          }).toList(),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                );
-              }).toList()),
-              const SizedBox(height: 12),
-
-              Text(
-                'Inspection Status',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: statusCategories.map((status) {
-                  return ChoiceChip(
-                    label: Text(status),
-                    selected: _selectedStatus == status,
-                    onSelected: (selected) {
-                      setState(() {
-                        _selectedStatus = selected ? status : null;
-                        if (_selectedStatus == 'No Defect') {
-                          _selectedDefectCodes.clear();
-                        }
-                      });
-                    },
+                      const SizedBox(height: 12),
+                    ],
                   );
-                }).toList(),
-              ),
-              const SizedBox(height: 24),
+                }).toList()),
+                const SizedBox(height: 12),
 
-              // Impact Category
-              Text(
-                'Impact Category',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: impactCategories.map((category) {
-                  return FilterChip(
-                    label: Text(category),
-                    selected: _selectedImpactCategory == category,
-                    backgroundColor:
-                        _getImpactColor(category).withValues(alpha: 0.3),
-                    selectedColor: _getImpactColor(category),
-                    labelStyle: TextStyle(
-                      color: _selectedImpactCategory == category
-                          ? Colors.white
-                          : Colors.black,
-                    ),
-                    onSelected: (selected) {
-                      setState(() {
-                        _selectedImpactCategory = selected ? category : null;
-                      });
-                    },
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 24),
+                Text(
+                  'Inspection Status',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: statusCategories.map((status) {
+                    return ChoiceChip(
+                      label: Text(status),
+                      selected: _selectedStatus == status,
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedStatus = selected ? status : null;
+                          if (_selectedStatus == 'No Defect') {
+                            _selectedDefectCodes.clear();
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+
+                // Impact Category (only for Defect Mode)
+                Text(
+                  'Impact Category',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: impactCategories.map((category) {
+                    return FilterChip(
+                      label: Text(category),
+                      selected: _selectedImpactCategory == category,
+                      backgroundColor:
+                          _getImpactColor(category).withValues(alpha: 0.3),
+                      selectedColor: _getImpactColor(category),
+                      labelStyle: TextStyle(
+                        color: _selectedImpactCategory == category
+                            ? Colors.white
+                            : Colors.black,
+                      ),
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedImpactCategory = selected ? category : null;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+              ],
 
               // Comments
               Text(
