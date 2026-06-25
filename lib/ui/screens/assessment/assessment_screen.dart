@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -221,7 +222,15 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        throw Exception('Location service is disabled');
+        // Fallback: just show a warning, user can type manually
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location service disabled. You can enter location manually.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
       }
 
       var permission = await Geolocator.checkPermission();
@@ -230,27 +239,59 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       }
       if (permission == LocationPermission.deniedForever ||
           permission == LocationPermission.denied) {
-        throw Exception('Location permission not granted');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location permission not granted. You can enter location manually.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
       }
 
       final position = await Geolocator.getCurrentPosition();
-      final resolvedAddress =
-          _address ??
-          'Lat ${position.latitude.toStringAsFixed(6)}, '
-              'Lng ${position.longitude.toStringAsFixed(6)}';
+
+      // Attempt reverse geocoding for human-readable address
+      String resolvedAddress = '';
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final pm = placemarks.first;
+          final parts = <String>[
+            if (pm.street != null && pm.street!.isNotEmpty) pm.street!,
+            if (pm.subLocality != null && pm.subLocality!.isNotEmpty) pm.subLocality!,
+            if (pm.locality != null && pm.locality!.isNotEmpty) pm.locality!,
+            if (pm.administrativeArea != null && pm.administrativeArea!.isNotEmpty) pm.administrativeArea!,
+            if (pm.country != null && pm.country!.isNotEmpty) pm.country!,
+          ];
+          resolvedAddress = parts.join(', ');
+        }
+      } catch (_) {
+        // Reverse geocoding failed, fall through to manual entry
+      }
 
       if (!mounted) return;
       setState(() {
         _latitude = position.latitude;
         _longitude = position.longitude;
-        _address = resolvedAddress;
-        if (_locationController.text.trim().isEmpty) {
+        _address = resolvedAddress.isNotEmpty ? resolvedAddress : _address;
+        // Only auto-fill location field if it's empty and we got a geocoded address
+        if (_locationController.text.trim().isEmpty && resolvedAddress.isNotEmpty) {
           _locationController.text = resolvedAddress;
         }
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GPS location captured')),
+        SnackBar(
+          content: Text(
+            resolvedAddress.isNotEmpty
+                ? 'Location captured: $resolvedAddress'
+                : 'GPS location captured. Enter description manually.',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;

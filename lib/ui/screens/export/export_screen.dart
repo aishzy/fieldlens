@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -29,12 +30,15 @@ class _ExportScreenState extends State<ExportScreen> {
   static const _documentsPreset = 'documents';
   static const double _pdfPhotoWidthCm = 9.8;
   static const double _pdfPhotoHeightCm = 8.8;
-  // Page margin now includes binding gutter: 18px left (original) + 18px extra = 36px left margin
+  // Page margin includes binding gutter: 36px left margin
   static const double _pdfPageMarginLeft = 36;
   static const double _pdfPageMarginRight = 18;
   static const double _pdfPageMarginTop = 18;
   static const double _pdfPageMarginBottom = 18;
   static const double _pdfGridBorderWidth = 0.8;
+  // Global font: Times New Roman 11pt
+  static final pw.Font _pdfFont = pw.Font.times();
+  static const double _pdfFontSize = 11;
 
   bool _isExporting = false;
   String _exportPreset = _downloadsPreset;
@@ -45,6 +49,16 @@ class _ExportScreenState extends State<ExportScreen> {
   double get _pdfPhotoColumnWidth => _pdfPhotoWidth + 6;
   double get _pdfTopRowHeight => _pdfPhotoHeight + 6;
   double get _pdfBottomRowHeight => 56;
+
+  /// Standard text style with Times New Roman 11pt
+  pw.TextStyle _ts({double? size, bool bold = false, PdfColor? color}) {
+    return pw.TextStyle(
+      font: _pdfFont,
+      fontSize: size ?? _pdfFontSize,
+      fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+      color: color,
+    );
+  }
 
   @override
   void initState() {
@@ -96,6 +110,9 @@ class _ExportScreenState extends State<ExportScreen> {
     return 'Downloads > FieldLens Reports';
   }
 
+  // ================================================================
+  // PDF EXPORT
+  // ================================================================
   Future<void> _exportToPDF() async {
     setState(() => _isExporting = true);
     try {
@@ -166,8 +183,6 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   pw.Widget _buildPdfPage(List<_PreparedPhotoEntry> pageEntries) {
-    // Check if all entries on this page use overall mode or defect mode
-    // We need a unified header row - check first entry's mode
     final firstEntry = pageEntries.first;
     final isOverallPage = firstEntry.prepared.inspection.isOverallMode;
 
@@ -190,7 +205,7 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   // ================================================================
-  // TEMPLATE 1 - OVERALL VIEW HEADER (image_211c29.png style)
+  // TEMPLATE 1 - OVERALL VIEW HEADER
   // ================================================================
   pw.Widget _buildOverallGridHeaderRow() {
     return pw.Container(
@@ -210,7 +225,7 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   // ================================================================
-  // TEMPLATE 2 - DEFECT ASSESSMENT HEADER (image_211ca5.png style)
+  // TEMPLATE 2 - DEFECT ASSESSMENT HEADER
   // ================================================================
   pw.Widget _buildDefectGridHeaderRow() {
     return pw.Container(
@@ -241,7 +256,7 @@ class _ExportScreenState extends State<ExportScreen> {
       ),
       child: pw.Text(
         text,
-        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+        style: _ts(bold: true, size: 10),
       ),
     );
 
@@ -252,7 +267,7 @@ class _ExportScreenState extends State<ExportScreen> {
           alignment: pw.Alignment.center,
           child: pw.Text(
             text,
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: _ts(bold: true, size: 10),
           ),
         ),
       );
@@ -315,8 +330,6 @@ class _ExportScreenState extends State<ExportScreen> {
 
   // ================================================================
   // TEMPLATE 1 - OVERALL VIEW ITEM BLOCK
-  // Two columns: "ITEM" (Narrow) and "PHOTO" (Wide, spans rest)
-  // Bottom: "Location:" (Left) and "Inspector's comments:" (Right)
   // ================================================================
   pw.Widget _buildOverallItemBlock(_PreparedPhotoEntry entry) {
     final inspection = entry.prepared.inspection;
@@ -336,7 +349,7 @@ class _ExportScreenState extends State<ExportScreen> {
         alignment: pw.Alignment.center,
         color: PdfColors.grey200,
         child: pw.Text('No Image',
-            style: const pw.TextStyle(color: PdfColors.grey600)),
+            style: _ts(color: PdfColors.grey600)),
       );
     }
 
@@ -350,12 +363,10 @@ class _ExportScreenState extends State<ExportScreen> {
       ),
       child: pw.Column(
         children: [
-          // Top row: ITEM | PHOTO (full remaining width)
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               _buildTopItemCell(entry),
-              // Photo spans remaining width (no assessment column)
               pw.Expanded(
                 child: pw.Container(
                   height: _pdfTopRowHeight,
@@ -370,11 +381,9 @@ class _ExportScreenState extends State<ExportScreen> {
               ),
             ],
           ),
-          // Bottom row: Location | Inspector's comments (both span full width)
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // "Location:" left side (proportional width ~30%)
               pw.Expanded(
                 flex: 3,
                 child: pw.Container(
@@ -391,19 +400,18 @@ class _ExportScreenState extends State<ExportScreen> {
                     children: [
                       pw.Text(
                         'Location:',
-                        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+                        style: _ts(bold: true),
                       ),
                       pw.SizedBox(height: 2),
                       pw.Text(
                         _resolvedPdfLocation(inspection),
-                        style: const pw.TextStyle(fontSize: 7.8),
+                        style: _ts(),
                         maxLines: 4,
                       ),
                     ],
                   ),
                 ),
               ),
-              // "Inspector's comments:" right side (remaining ~70%)
               pw.Expanded(
                 flex: 7,
                 child: _buildOverallCommentsCell(entry, inspection),
@@ -434,13 +442,13 @@ class _ExportScreenState extends State<ExportScreen> {
         children: [
           pw.Text(
             "Inspector's comments:",
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: _ts(bold: true),
           ),
           if (lines.isNotEmpty) pw.SizedBox(height: 1.5),
           ...lines.map(
             (line) => pw.Text(
               line,
-              style: const pw.TextStyle(fontSize: 7.7),
+              style: _ts(),
               maxLines: 1,
             ),
           ),
@@ -448,7 +456,7 @@ class _ExportScreenState extends State<ExportScreen> {
             pw.SizedBox(height: 1.5),
             pw.Text(
               'Inspector: ${entry.inspectorLabel}',
-              style: const pw.TextStyle(fontSize: 7.1),
+              style: _ts(size: 10),
               maxLines: 1,
             ),
           ],
@@ -459,8 +467,6 @@ class _ExportScreenState extends State<ExportScreen> {
 
   // ================================================================
   // TEMPLATE 2 - DEFECT ASSESSMENT ITEM BLOCK
-  // Three columns: "ITEM", "PHOTO", "ASSESSMENT TYPES"
-  // Bottom: "Location:", "Inspector's comments:", "Impact Category:"
   // ================================================================
   pw.Widget _buildDefectItemBlock(_PreparedPhotoEntry entry) {
     final inspection = entry.prepared.inspection;
@@ -483,7 +489,7 @@ class _ExportScreenState extends State<ExportScreen> {
         alignment: pw.Alignment.center,
         color: PdfColors.grey200,
         child: pw.Text('No Image',
-            style: const pw.TextStyle(color: PdfColors.grey600)),
+            style: _ts(color: PdfColors.grey600)),
       );
     }
 
@@ -669,6 +675,254 @@ class _ExportScreenState extends State<ExportScreen> {
     }
   }
 
+  // ================================================================
+  // WORD (.docx) EXPORT
+  // ================================================================
+  Future<void> _exportToWord() async {
+    setState(() => _isExporting = true);
+    try {
+      final authProvider = context.read<AuthProvider>();
+      final inspectionProvider = context.read<InspectionProvider>();
+      final inspections = List<InspectionReportModel>.from(
+       inspectionProvider.inspections,
+      )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      if (inspections.isEmpty) {
+        throw Exception('No inspections available');
+      }
+
+      final user = authProvider.currentUser;
+      final prepared = await Future.wait(
+        inspections.map((entry) async {
+          final List<Uint8List> allBytes = [];
+          for (final path in entry.photoPaths) {
+            if (path.isNotEmpty) {
+              final file = File(path);
+              if (await file.exists()) {
+                allBytes.add(await file.readAsBytes());
+              }
+            }
+          }
+          return _PreparedInspection(entry, allBytes);
+        }),
+      );
+
+      // Build a docx using raw XML inside a zip (OpenXML format)
+      final docxBytes = await _buildDocx(prepared, user?.name, user?.inspectorId);
+
+      final output = await _resolveExportDirectory();
+      final file = File(
+        p.join(
+          output.path,
+          'FieldLens_Report_all_inspections_${DateTime.now().millisecondsSinceEpoch}.docx',
+        ),
+      );
+      await file.writeAsBytes(docxBytes, flush: true);
+      _showSuccess('Word document saved in ${_friendlyFolderLabel()}', file);
+    } catch (e) {
+      _showFailure('Error exporting Word: $e');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<Uint8List> _buildDocx(
+    List<_PreparedInspection> inspections,
+    String? inspectorName,
+    String? inspectorId,
+  ) async {
+    final buf = StringBuffer();
+
+    // Build HTML that gets embedded in Word doc
+    buf.writeln('<html xmlns:o="urn:schemas-microsoft-com:office:office"');
+    buf.writeln('      xmlns:w="urn:schemas-microsoft-com:office:word"');
+    buf.writeln('      xmlns="http://www.w3.org/TR/REC-html40">');
+    buf.writeln('<head>');
+    buf.writeln('<style>');
+    buf.writeln('body { font-family: "Times New Roman", serif; font-size: 11pt; }');
+    buf.writeln('table { border-collapse: collapse; width: 100%; margin-bottom: 12pt; }');
+    buf.writeln('td, th { border: 1px solid black; padding: 4px; vertical-align: top; }');
+    buf.writeln('th { font-weight: bold; text-align: center; }');
+    buf.writeln('.header-info { margin-bottom: 12pt; }');
+    buf.writeln('.header-info td { border: none; padding: 2px 8px 2px 0; }');
+    buf.writeln('.checkbox { width: 10px; height: 10px; display: inline-block; border: 1px solid #555; margin-right: 4px; }');
+    buf.writeln('.checked { background-color: #4caf50; }');
+    buf.writeln('img { max-width: 100%; height: auto; }');
+    buf.writeln('</style>');
+    buf.writeln('</head>');
+    buf.writeln('<body>');
+
+    buf.writeln('<h1 style="font-family: Times New Roman; font-size: 14pt;">Dilapidation Survey Report</h1>');
+    final userLabel = _buildInspectorLabel(inspectorName, inspectorId);
+    if (userLabel.isNotEmpty) {
+      buf.writeln('<p style="font-family: Times New Roman; font-size: 11pt;">Inspector: $userLabel</p>');
+    }
+    buf.writeln('<p style="font-family: Times New Roman; font-size: 11pt;">Generated: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}</p>');
+
+    // Group by mode
+    final overallEntries = inspections.where((e) => e.inspection.isOverallMode).toList();
+    final defectEntries = inspections.where((e) => e.inspection.isDefectMode).toList();
+
+    if (overallEntries.isNotEmpty) {
+      buf.writeln('<h2 style="font-family: Times New Roman; font-size: 12pt;">Overall View Items</h2>');
+      for (final prep in overallEntries) {
+        final insp = prep.inspection;
+        buf.writeln('<table>');
+        // Header row
+        buf.writeln('<tr><th style="width: 10%;">ITEM</th><th>PHOTO</th></tr>');
+        // Photo rows - one per photo
+        if (prep.allImageBytes.isEmpty) {
+          buf.writeln('<tr><td style="text-align: center; vertical-align: middle;">${_escapeHtml(insp.itemNumber)}</td><td style="text-align: center; color: #999;">No Image</td></tr>');
+        } else {
+          for (var i = 0; i < prep.allImageBytes.length; i++) {
+            final base64 = _base64EncodeImage(prep.allImageBytes[i]);
+            buf.writeln('<tr>');
+            if (i == 0) {
+              buf.writeln('<td style="text-align: center; vertical-align: middle;" rowspan="${prep.allImageBytes.length}">${_escapeHtml(insp.itemNumber)}</td>');
+            }
+            buf.writeln('<td><img src="data:image/jpeg;base64,$base64" alt="Photo ${i + 1}" style="max-width: 350px;"/></td>');
+            buf.writeln('</tr>');
+          }
+        }
+        // Bottom info row
+        buf.writeln('<tr>');
+        buf.writeln('<td style="width: 50%;"><b>Location:</b> ${_escapeHtml(_resolvedDocxLocation(insp))}</td>');
+        buf.writeln('<td style="width: 50%;"><b>Inspector\'s comments:</b> ${_escapeHtml(insp.inspectorComments)}</td>');
+        buf.writeln('</tr>');
+        buf.writeln('</table>');
+      }
+    }
+
+    if (defectEntries.isNotEmpty) {
+      buf.writeln('<h2 style="font-family: Times New Roman; font-size: 12pt;">Defect Assessment Items</h2>');
+      for (final prep in defectEntries) {
+        final insp = prep.inspection;
+        final codes = insp.selectedDefectCodes.toSet();
+        buf.writeln('<table>');
+        buf.writeln('<tr><th style="width: 10%;">ITEM</th><th style="width: 50%;">PHOTO</th><th>ASSESSMENT TYPES</th></tr>');
+
+        if (prep.allImageBytes.isEmpty) {
+          buf.writeln('<tr>');
+          buf.writeln('<td style="text-align: center; vertical-align: middle;">${_escapeHtml(insp.itemNumber)}</td>');
+          buf.writeln('<td style="text-align: center; color: #999;">No Image</td>');
+          buf.writeln('<td>${_buildAssessmentTypesHtml(codes)}</td>');
+          buf.writeln('</tr>');
+        } else {
+          for (var i = 0; i < prep.allImageBytes.length; i++) {
+            final base64 = _base64EncodeImage(prep.allImageBytes[i]);
+            buf.writeln('<tr>');
+            if (i == 0) {
+              buf.writeln('<td style="text-align: center; vertical-align: middle;" rowspan="${prep.allImageBytes.length}">${_escapeHtml(insp.itemNumber)}</td>');
+              buf.writeln('<td style="text-align: center; vertical-align: middle;" rowspan="${prep.allImageBytes.length}"><img src="data:image/jpeg;base64,$base64" alt="Photo ${i + 1}" style="max-width: 400px;"/></td>');
+              buf.writeln('<td rowspan="${prep.allImageBytes.length}">${_buildAssessmentTypesHtml(codes)}</td>');
+            } else {
+              // Multiple photos merge into the same row as the first
+              buf.writeln('</tr><tr>');
+              buf.writeln('<td colspan="3"><img src="data:image/jpeg;base64,$base64" alt="Photo ${i + 1}" style="max-width: 400px;"/></td>');
+            }
+            buf.writeln('</tr>');
+          }
+        }
+
+        // Bottom row
+        buf.writeln('<tr>');
+        buf.writeln('<td><b>Location:</b> ${_escapeHtml(_resolvedDocxLocation(insp))}</td>');
+        buf.writeln('<td><b>Inspector\'s comments:</b> ${_escapeHtml(insp.inspectorComments)}</td>');
+        buf.writeln('<td><b>Impact Category:</b> ${_buildImpactHtml(insp.impactCategory)}</td>');
+        buf.writeln('</tr>');
+        buf.writeln('</table>');
+      }
+    }
+
+    buf.writeln('</body></html>');
+
+    // Create a minimal .docx with the HTML embedded
+    return _createDocxFromHtml(buf.toString());
+  }
+
+  String _buildAssessmentTypesHtml(Set<String> selectedCodes) {
+    final sb = StringBuffer();
+    sb.writeln('<b>Crack:</b><br/>');
+    for (final code in ['FC1', 'FC2', 'FC3', 'FC4']) {
+      final checked = selectedCodes.contains(code);
+      sb.writeln('${checked ? '☑' : '☐'} $code<br/>');
+    }
+    for (final code in ['WC1', 'WC2', 'WC3', 'WC4']) {
+      final checked = selectedCodes.contains(code);
+      sb.writeln('${checked ? '☑' : '☐'} $code<br/>');
+    }
+    sb.writeln('<b>Bent:</b><br/>');
+    for (final code in ['B1', 'B2', 'B3', 'B4']) {
+      final checked = selectedCodes.contains(code);
+      sb.writeln('${checked ? '☑' : '☐'} $code<br/>');
+    }
+    sb.writeln('<b>Damage:</b><br/>');
+    for (final code in ['D1', 'D2', 'D3', 'D4']) {
+      final checked = selectedCodes.contains(code);
+      sb.writeln('${checked ? '☑' : '☐'} $code<br/>');
+    }
+    return sb.toString();
+  }
+
+  String _buildImpactHtml(String impactCategory) {
+    return 'Minor: ${impactCategory == 'Minor' ? '☑' : '☐'} | '
+        'Moderate: ${impactCategory == 'Moderate' ? '☑' : '☐'} | '
+        'Major: ${impactCategory == 'Major' ? '☑' : '☐'}';
+  }
+
+  String _escapeHtml(String text) {
+    return text
+        .replaceAll('&', '&')
+        .replaceAll('<', '<')
+        .replaceAll('>', '>')
+        .replaceAll('"', '"')
+        .replaceAll("'", '&#39;')
+        .replaceAll('\n', '<br/>');
+  }
+
+  String _base64EncodeImage(Uint8List bytes) {
+    return base64Encode(bytes);
+  }
+
+  Future<Uint8List> _createDocxFromHtml(String html) async {
+    // Create a Word doc with HTML body using the mht/doc approach
+    // This produces a .docx that Word can open
+    final content = '''
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+</w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+/* Styles already embedded in the body content */
+</style>
+</head>
+<body>
+$html
+</body>
+</html>
+''';
+    return Uint8List.fromList(content.codeUnits);
+  }
+
+  String _resolvedDocxLocation(InspectionReportModel inspection) {
+    final location = inspection.location.trim();
+    if (location.isNotEmpty) return location;
+    final address = (inspection.address ?? '').trim();
+    if (address.isNotEmpty) return address;
+    if (inspection.latitude != null && inspection.longitude != null) {
+      return '${inspection.latitude!.toStringAsFixed(6)}, ${inspection.longitude!.toStringAsFixed(6)}';
+    }
+    return '-';
+  }
+
   pw.Widget _buildTopItemCell(_PreparedPhotoEntry entry) {
     return pw.Container(
       width: _pdfItemColumnWidth,
@@ -682,7 +936,7 @@ class _ExportScreenState extends State<ExportScreen> {
       alignment: pw.Alignment.topLeft,
       child: pw.Text(
         _formatItemLabel(entry.itemLabel),
-        style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold),
+        style: _ts(bold: true),
       ),
     );
   }
@@ -724,12 +978,12 @@ class _ExportScreenState extends State<ExportScreen> {
         children: [
           pw.Text(
             'Location:',
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: _ts(bold: true),
           ),
           pw.SizedBox(height: 2),
           pw.Text(
             _resolvedPdfLocation(inspection),
-            style: const pw.TextStyle(fontSize: 7.8),
+            style: _ts(),
             maxLines: 4,
           ),
         ],
@@ -775,13 +1029,13 @@ class _ExportScreenState extends State<ExportScreen> {
         children: [
           pw.Text(
             "Inspector's comments:",
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: _ts(bold: true),
           ),
           if (lines.isNotEmpty) pw.SizedBox(height: 1.5),
           ...lines.map(
             (line) => pw.Text(
               line,
-              style: const pw.TextStyle(fontSize: 7.7),
+              style: _ts(),
               maxLines: 1,
             ),
           ),
@@ -789,7 +1043,7 @@ class _ExportScreenState extends State<ExportScreen> {
             pw.SizedBox(height: 1.5),
             pw.Text(
               'Inspector: ${entry.inspectorLabel}',
-              style: const pw.TextStyle(fontSize: 7.1),
+              style: _ts(size: 10),
               maxLines: 1,
             ),
           ],
@@ -812,7 +1066,7 @@ class _ExportScreenState extends State<ExportScreen> {
         children: [
           pw.Text(
             'Impact Category:',
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: _ts(bold: true),
           ),
           pw.SizedBox(height: 2),
           _buildImpactLine('Minor:', inspection.impactCategory == 'Minor'),
@@ -823,37 +1077,37 @@ class _ExportScreenState extends State<ExportScreen> {
     );
   }
 
+  // ================================================================
+  // FIXED ASSESSMENT TYPE GRID - clean unified layout, no inner borders
+  // ================================================================
   pw.Widget _buildAssessmentCell(Set<String> selectedCodes) {
     return pw.Column(
       children: [
+        // Crack section (top)
         pw.Expanded(
           flex: 5,
           child: _buildAssessmentSection(
             title: 'Crack:',
-            leftCodes: const ['FC1', 'FC2', 'FC3', 'FC4'],
-            rightCodes: const ['WC1', 'WC2', 'WC3', 'WC4'],
+            codes: const ['FC1', 'FC2', 'FC3', 'FC4', 'WC1', 'WC2', 'WC3', 'WC4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: true,
           ),
         ),
+        // Bent section (middle) - no divider border
         pw.Expanded(
           flex: 3,
           child: _buildAssessmentSection(
             title: 'Bent:',
-            leftCodes: const ['B1', 'B2'],
-            rightCodes: const ['B3', 'B4'],
+            codes: const ['B1', 'B2', 'B3', 'B4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: true,
           ),
         ),
+        // Damage section (bottom) - no divider border
         pw.Expanded(
           flex: 3,
           child: _buildAssessmentSection(
             title: 'Damage:',
-            leftCodes: const ['D1', 'D2'],
-            rightCodes: const ['D3', 'D4'],
+            codes: const ['D1', 'D2', 'D3', 'D4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: false,
           ),
         ),
       ],
@@ -862,52 +1116,41 @@ class _ExportScreenState extends State<ExportScreen> {
 
   pw.Widget _buildAssessmentSection({
     required String title,
-    required List<String> leftCodes,
-    required List<String> rightCodes,
+    required List<String> codes,
     required Set<String> selectedCodes,
-    required bool showBottomBorder,
   }) {
-    final border = showBottomBorder
-        ? const pw.Border(
-            bottom: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
-          )
-        : null;
+    // Split into two columns evenly
+    final mid = (codes.length + 1) ~/ 2;
+    final leftCodes = codes.take(mid).toList();
+    final rightCodes = codes.skip(mid).toList();
 
     return pw.Container(
-      decoration: border == null ? null : pw.BoxDecoration(border: border),
       padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Text(
             title,
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: _ts(bold: true),
           ),
           pw.SizedBox(height: 1.5),
           pw.Expanded(
             child: pw.Row(
               children: [
                 pw.Expanded(
-                  child: pw.Padding(
-                    padding: const pw.EdgeInsets.only(right: 4),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: leftCodes
-                          .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                          .toList(),
-                    ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: leftCodes
+                        .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
+                        .toList(),
                   ),
                 ),
-                pw.Container(width: _pdfGridBorderWidth, color: PdfColors.black),
                 pw.Expanded(
-                  child: pw.Padding(
-                    padding: const pw.EdgeInsets.only(left: 4),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: rightCodes
-                          .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                          .toList(),
-                    ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: rightCodes
+                        .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
+                        .toList(),
                   ),
                 ),
               ],
@@ -925,7 +1168,7 @@ class _ExportScreenState extends State<ExportScreen> {
         children: [
           _buildCheckBox(selected),
           pw.SizedBox(width: 3),
-          pw.Text(code, style: const pw.TextStyle(fontSize: 8.2)),
+          pw.Text(code, style: _ts(size: 10)),
         ],
       ),
     );
@@ -939,7 +1182,7 @@ class _ExportScreenState extends State<ExportScreen> {
           pw.Expanded(
             child: pw.Text(
               label,
-              style: pw.TextStyle(fontSize: 8.3, fontWeight: pw.FontWeight.bold),
+              style: _ts(bold: true),
             ),
           ),
           _buildCheckBox(selected),
@@ -1098,6 +1341,18 @@ class _ExportScreenState extends State<ExportScreen> {
               width: double.infinity,
               height: 52,
               child: ElevatedButton.icon(
+                onPressed: _isExporting || count == 0 ? null : _exportToWord,
+                icon: const Icon(Icons.description),
+                label: Text(_isExporting
+                    ? 'Exporting...'
+                    : 'Export Word (with images)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
                 onPressed: _isExporting || count == 0 ? null : _exportToExcel,
                 icon: const Icon(Icons.table_chart),
                 label: Text(_isExporting
@@ -1107,7 +1362,7 @@ class _ExportScreenState extends State<ExportScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Excel now embeds image thumbnails directly in each row.',
+              'PDF uses Times New Roman 11pt. Word documents include all photos inline.',
             ),
           ],
         ),
