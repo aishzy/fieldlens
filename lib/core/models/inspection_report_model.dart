@@ -18,9 +18,6 @@ class InspectionReportModel {
   final bool scopeME;
   final bool scopePublicFacilities;
   final List<String> selectedDefectCodes;
-  final double? latitude;
-  final double? longitude;
-  final String? address;
   final DateTime timestamp;
   final bool isSynced;
   final String inspectionMode; // 'overall' for Overall View, 'defect' for Defect Assessment
@@ -43,9 +40,6 @@ class InspectionReportModel {
     this.scopeME = false,
     this.scopePublicFacilities = false,
     this.selectedDefectCodes = const [],
-    this.latitude,
-    this.longitude,
-    this.address,
     required this.timestamp,
     this.isSynced = false,
     this.inspectionMode = 'defect', // default to defect assessment mode
@@ -76,9 +70,6 @@ class InspectionReportModel {
       'scope_me': scopeME ? 1 : 0,
       'scope_public_facilities': scopePublicFacilities ? 1 : 0,
       'selected_defect_codes': jsonEncode(selectedDefectCodes),
-      'latitude': latitude,
-      'longitude': longitude,
-      'address': address,
       'timestamp': timestamp.toIso8601String(),
       'is_synced': isSynced ? 1 : 0,
       'inspection_mode': inspectionMode,
@@ -135,11 +126,6 @@ class InspectionReportModel {
       scopeME: (map['scope_me'] ?? 0) == 1,
       scopePublicFacilities: (map['scope_public_facilities'] ?? 0) == 1,
       selectedDefectCodes: parsedDefectCodes,
-      latitude:
-          map['latitude'] is num ? (map['latitude'] as num).toDouble() : null,
-      longitude:
-          map['longitude'] is num ? (map['longitude'] as num).toDouble() : null,
-      address: map['address'] as String?,
       timestamp: DateTime.parse(map['timestamp'] as String),
       isSynced: (map['is_synced'] as int) == 1,
       inspectionMode: (map['inspection_mode'] ?? 'defect') as String,
@@ -164,9 +150,6 @@ class InspectionReportModel {
     bool? scopeME,
     bool? scopePublicFacilities,
     List<String>? selectedDefectCodes,
-    double? latitude,
-    double? longitude,
-    String? address,
     DateTime? timestamp,
     bool? isSynced,
     String? inspectionMode,
@@ -190,9 +173,6 @@ class InspectionReportModel {
       scopePublicFacilities:
           scopePublicFacilities ?? this.scopePublicFacilities,
       selectedDefectCodes: selectedDefectCodes ?? this.selectedDefectCodes,
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
-      address: address ?? this.address,
       timestamp: timestamp ?? this.timestamp,
       isSynced: isSynced ?? this.isSynced,
       inspectionMode: inspectionMode ?? this.inspectionMode,

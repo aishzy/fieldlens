@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
@@ -33,9 +31,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   final Set<String> _selectedDefectCodes = {};
   String? _selectedImpactCategory;
   String? _selectedStatus;
-  double? _latitude;
-  double? _longitude;
-  String? _address;
   DateTime? _photoCapturedAt;
   bool _isSaving = false;
   String _inspectionMode = 'defect'; // 'overall' or 'defect'
@@ -131,9 +126,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _selectedImpactCategory =
         existing?.impactCategory ?? impactCategories.first;
     _selectedStatus = existing?.status ?? statusCategories.first;
-    _latitude = existing?.latitude;
-    _longitude = existing?.longitude;
-    _address = existing?.address;
     _photoCapturedAt = existing?.timestamp;
     if (existing != null) {
       _selectedPhotoPaths.addAll(existing.photoPaths);
@@ -165,9 +157,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           _selectedPhotoPaths.add(photo.path);
           _photoCapturedAt = DateTime.now();
         });
-        if (_latitude == null || _longitude == null) {
-          _detectCurrentLocation();
-        }
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -200,9 +189,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         _selectedPhotoPaths.addAll(photos.map((item) => item.path));
         _photoCapturedAt ??= DateTime.now();
       });
-      if (_latitude == null || _longitude == null) {
-        _detectCurrentLocation();
-      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${photos.length} photo(s) imported')),
@@ -212,92 +198,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error importing photos: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _detectCurrentLocation() async {
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        // Fallback: just show a warning, user can type manually
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Location service disabled. You can enter location manually.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.deniedForever ||
-          permission == LocationPermission.denied) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Location permission not granted. You can enter location manually.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition();
-
-      // Attempt reverse geocoding for human-readable address
-      String resolvedAddress = '';
-      try {
-        final placemarks = await placemarkFromCoordinates(
-          position.latitude,
-          position.longitude,
-        );
-        if (placemarks.isNotEmpty) {
-          final pm = placemarks.first;
-          final parts = <String>[
-            if (pm.street != null && pm.street!.isNotEmpty) pm.street!,
-            if (pm.subLocality != null && pm.subLocality!.isNotEmpty) pm.subLocality!,
-            if (pm.locality != null && pm.locality!.isNotEmpty) pm.locality!,
-            if (pm.administrativeArea != null && pm.administrativeArea!.isNotEmpty) pm.administrativeArea!,
-            if (pm.country != null && pm.country!.isNotEmpty) pm.country!,
-          ];
-          resolvedAddress = parts.join(', ');
-        }
-      } catch (_) {
-        // Reverse geocoding failed, fall through to manual entry
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-        _address = resolvedAddress.isNotEmpty ? resolvedAddress : _address;
-        // Only auto-fill location field if it's empty and we got a geocoded address
-        if (_locationController.text.trim().isEmpty && resolvedAddress.isNotEmpty) {
-          _locationController.text = resolvedAddress;
-        }
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            resolvedAddress.isNotEmpty
-                ? 'Location captured: $resolvedAddress'
-                : 'GPS location captured. Enter description manually.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Unable to capture location: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -447,9 +347,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         impactCategory: _selectedImpactCategory ?? 'Minor',
         status: _selectedStatus!,
         timestamp: _photoCapturedAt ?? DateTime.now(),
-        latitude: _latitude,
-        longitude: _longitude,
-        address: _address,
         refNo: _refNoController.text.trim(),
         section: _sectionController.text.trim(),
         scopeInternal: _scopeInternal,
@@ -471,9 +368,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           impactCategory: _selectedImpactCategory ?? 'Minor',
           status: _selectedStatus!,
           timestamp: _photoCapturedAt ?? existing.timestamp,
-          latitude: _latitude,
-          longitude: _longitude,
-          address: _address,
           refNo: _refNoController.text.trim(),
           section: _sectionController.text.trim(),
           scopeInternal: _scopeInternal,
@@ -481,7 +375,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           scopeME: _scopeME,
           scopePublicFacilities: _scopePublicFacilities,
           selectedDefectCodes: codes,
-          inspectionMode: _inspectionMode,
         ),
       );
       if (success) {
@@ -1008,37 +901,6 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-
-              // GPS
-              Text(
-                'GPS & Address',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _detectCurrentLocation,
-                  icon: const Icon(Icons.my_location),
-                  label: const Text('Capture Current GPS Location'),
-                ),
-              ),
-              if (_latitude != null && _longitude != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Lat/Lng: ${_latitude!.toStringAsFixed(6)}, ${_longitude!.toStringAsFixed(6)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              if (_address != null && _address!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Address: $_address',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
               const SizedBox(height: 24),
 
               // Save Button

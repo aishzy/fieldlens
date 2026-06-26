@@ -8,7 +8,7 @@ import '../models/user_model.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'dilapidation_survey.db';
-  static const _databaseVersion = 6;
+  static const _databaseVersion = 7;
 
   static const String usersTable = 'users';
   static const String inspectionReportsTable = 'inspection_reports';
@@ -53,9 +53,6 @@ class DatabaseHelper {
         scope_me INTEGER DEFAULT 0,
         scope_public_facilities INTEGER DEFAULT 0,
         selected_defect_codes TEXT NOT NULL DEFAULT '[]',
-        latitude REAL,
-        longitude REAL,
-        address TEXT,
         timestamp TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
         inspection_mode TEXT NOT NULL DEFAULT 'defect',
@@ -94,15 +91,6 @@ class DatabaseHelper {
       );
       await db.execute(
         "ALTER TABLE $inspectionReportsTable ADD COLUMN status TEXT NOT NULL DEFAULT 'No Defect'",
-      );
-      await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN latitude REAL",
-      );
-      await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN longitude REAL",
-      );
-      await db.execute(
-        "ALTER TABLE $inspectionReportsTable ADD COLUMN address TEXT",
       );
       await db.execute(
         "UPDATE $inspectionReportsTable SET photo_paths = '[\"' || REPLACE(photo_path, '\"', '\\\"') || '\"]' WHERE photo_path IS NOT NULL AND photo_path != ''",
@@ -152,10 +140,28 @@ class DatabaseHelper {
       await db.execute('DROP TABLE IF EXISTS sessions');
     }
 
-    if (oldVersion < 6) {
+    if (oldVersion >= 5 && oldVersion < 6) {
       await db.execute(
         "ALTER TABLE $inspectionReportsTable ADD COLUMN inspection_mode TEXT NOT NULL DEFAULT 'defect'",
       );
+    }
+
+    if (oldVersion < 7) {
+      final inspections = await db.query(inspectionReportsTable);
+      await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy_v7');
+      await db.execute(
+        'ALTER TABLE $inspectionReportsTable RENAME TO ${inspectionReportsTable}_legacy_v7',
+      );
+      await _createInspectionTable(db);
+
+      for (final row in inspections) {
+        await db.insert(
+          inspectionReportsTable,
+          _migrateInspectionRow(row),
+        );
+      }
+
+      await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy_v7');
     }
   }
 
@@ -184,11 +190,9 @@ class DatabaseHelper {
       'scope_me': _boolInt(row['scope_me']),
       'scope_public_facilities': _boolInt(row['scope_public_facilities']),
       'selected_defect_codes': jsonEncode(defectCodes),
-      'latitude': row['latitude'],
-      'longitude': row['longitude'],
-      'address': row['address'],
       'timestamp': row['timestamp'] ?? DateTime.now().toIso8601String(),
       'is_synced': _boolInt(row['is_synced']),
+      'inspection_mode': row['inspection_mode'] ?? 'defect',
     };
   }
 
