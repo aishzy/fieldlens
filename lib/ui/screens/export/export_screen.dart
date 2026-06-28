@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -16,6 +15,7 @@ import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/inspection_provider.dart';
+import '../../../core/utils/docx_builder.dart';
 
 class ExportScreen extends StatefulWidget {
   const ExportScreen({super.key});
@@ -129,6 +129,9 @@ class _ExportScreenState extends State<ExportScreen> {
 
       final pdf = pw.Document();
 
+      // Get siteLocation from first inspection (session-level field)
+      final siteLocation = inspections.isNotEmpty ? inspections.first.siteLocation : '';
+
       final photoEntries = _expandPhotoEntries(prepared, user?.name, user?.inspectorId);
       for (var start = 0; start < photoEntries.length; start += 2) {
         final pageEntries = photoEntries.skip(start).take(2).toList();
@@ -141,7 +144,7 @@ class _ExportScreenState extends State<ExportScreen> {
               top: _pdfMarginTopCm * PdfPageFormat.cm,
               bottom: _pdfMarginBottomCm * PdfPageFormat.cm,
             ),
-            build: (_) => _buildPdfPage(pageEntries),
+            build: (_) => _buildPdfPage(pageEntries, isFirstPage: start == 0, siteLocation: siteLocation),
           ),
         );
       }
@@ -162,13 +165,29 @@ class _ExportScreenState extends State<ExportScreen> {
     }
   }
 
-  pw.Widget _buildPdfPage(List<_PreparedPhotoEntry> pageEntries) {
+  pw.Widget _buildPdfPage(
+    List<_PreparedPhotoEntry> pageEntries, {
+    bool isFirstPage = false,
+    String siteLocation = '',
+  }) {
     final firstEntry = pageEntries.first;
     final isOverallPage = firstEntry.prepared.inspection.isOverallMode;
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
+        // Show Site Location only on the first page
+        if (isFirstPage && siteLocation.trim().isNotEmpty)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 4),
+            child: pw.Text(
+              'Site Location: ${siteLocation.trim()}',
+              style: pw.TextStyle(
+                fontSize: 9,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+          ),
         if (isOverallPage)
           _buildOverallGridHeaderRow()
         else
@@ -676,8 +695,17 @@ class _ExportScreenState extends State<ExportScreen> {
         }),
       );
 
-      // Build a docx using raw XML inside a zip (OpenXML format)
-      final docxBytes = await _buildDocx(prepared, user?.name, user?.inspectorId);
+      // Get siteLocation from first inspection (session-level field)
+      final siteLocation = inspections.isNotEmpty ? inspections.first.siteLocation : '';
+
+      // Build a proper OpenXML docx using DocxBuilder
+      final docxBytes = DocxBuilder.buildReport(
+        inspections,
+        user?.name ?? '',
+        user?.inspectorId ?? '',
+        prepared.map((p) => p.allImageBytes).toList(),
+        siteLocation: siteLocation,
+      );
 
       final output = await _resolveExportDirectory();
       final file = File(
@@ -693,195 +721,6 @@ class _ExportScreenState extends State<ExportScreen> {
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
-  }
-
-  Future<Uint8List> _buildDocx(
-    List<_PreparedInspection> inspections,
-    String? inspectorName,
-    String? inspectorId,
-  ) async {
-    final buf = StringBuffer();
-
-    // Build HTML that gets embedded in Word doc
-    buf.writeln('<html xmlns:o="urn:schemas-microsoft-com:office:office"');
-    buf.writeln('      xmlns:w="urn:schemas-microsoft-com:office:word"');
-    buf.writeln('      xmlns="http://www.w3.org/TR/REC-html40">');
-    buf.writeln('<head>');
-    buf.writeln('<style>');
-    buf.writeln('body { font-family: "Times New Roman", serif; font-size: 11pt; }');
-    buf.writeln('table { border-collapse: collapse; width: 100%; margin-bottom: 12pt; }');
-    buf.writeln('td, th { border: 1px solid black; padding: 4px; vertical-align: top; }');
-    buf.writeln('th { font-weight: bold; text-align: center; }');
-    buf.writeln('img { max-width: 100%; height: auto; }');
-    buf.writeln('</style>');
-    buf.writeln('</head>');
-    buf.writeln('<body>');
-
-    buf.writeln('<h1 style="font-family: Times New Roman; font-size: 14pt;">Dilapidation Survey Report</h1>');
-    final userLabel = _buildInspectorLabel(inspectorName, inspectorId);
-    if (userLabel.isNotEmpty) {
-      buf.writeln('<p style="font-family: Times New Roman; font-size: 11pt;">Inspector: $userLabel</p>');
-    }
-    buf.writeln('<p style="font-family: Times New Roman; font-size: 11pt;">Generated: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}</p>');
-
-    // Group by mode
-    final overallEntries = inspections.where((e) => e.inspection.isOverallMode).toList();
-    final defectEntries = inspections.where((e) => e.inspection.isDefectMode).toList();
-
-    if (overallEntries.isNotEmpty) {
-      buf.writeln('<h2 style="font-family: Times New Roman; font-size: 12pt;">Overall View Items</h2>');
-      for (final prep in overallEntries) {
-        final insp = prep.inspection;
-        buf.writeln('<table>');
-        // Header row
-        buf.writeln('<tr><th style="width: 10%;">ITEM</th><th>PHOTO</th></tr>');
-        // Photo rows - one per photo
-        if (prep.allImageBytes.isEmpty) {
-          buf.writeln('<tr><td style="text-align: center; vertical-align: middle;">${_escapeHtml(insp.itemNumber)}</td><td style="text-align: center; color: #999;">No Image</td></tr>');
-        } else {
-          for (var i = 0; i < prep.allImageBytes.length; i++) {
-            final base64 = _base64EncodeImage(prep.allImageBytes[i]);
-            buf.writeln('<tr>');
-            if (i == 0) {
-              buf.writeln('<td style="text-align: center; vertical-align: middle;" rowspan="${prep.allImageBytes.length}">${_escapeHtml(insp.itemNumber)}</td>');
-            }
-            buf.writeln('<td><img src="data:image/jpeg;base64,$base64" alt="Photo ${i + 1}" style="max-width: 350px;"/></td>');
-            buf.writeln('</tr>');
-          }
-        }
-        // Bottom info row
-        buf.writeln('<tr>');
-        buf.writeln('<td style="width: 50%;"><b>Location:</b> ${_escapeHtml(_resolvedWordLocation(insp))}</td>');
-        buf.writeln('<td style="width: 50%;"><b>Inspector\'s comments:</b> ${_escapeHtml(insp.inspectorComments)}</td>');
-        buf.writeln('</tr>');
-        buf.writeln('</table>');
-      }
-    }
-
-    if (defectEntries.isNotEmpty) {
-      buf.writeln('<h2 style="font-family: Times New Roman; font-size: 12pt;">Defect Assessment Items</h2>');
-      for (final prep in defectEntries) {
-        final insp = prep.inspection;
-        final codes = insp.selectedDefectCodes.toSet();
-        buf.writeln('<table>');
-        buf.writeln('<tr><th style="width: 10%;">ITEM</th><th style="width: 50%;">PHOTO</th><th>ASSESSMENT TYPES</th></tr>');
-
-        if (prep.allImageBytes.isEmpty) {
-          buf.writeln('<tr>');
-          buf.writeln('<td style="text-align: center; vertical-align: middle;">${_escapeHtml(insp.itemNumber)}</td>');
-          buf.writeln('<td style="text-align: center; color: #999;">No Image</td>');
-          buf.writeln('<td>${_buildAssessmentTypesHtml(codes)}</td>');
-          buf.writeln('</tr>');
-        } else {
-          for (var i = 0; i < prep.allImageBytes.length; i++) {
-            final base64 = _base64EncodeImage(prep.allImageBytes[i]);
-            buf.writeln('<tr>');
-            if (i == 0) {
-              buf.writeln('<td style="text-align: center; vertical-align: middle;" rowspan="${prep.allImageBytes.length}">${_escapeHtml(insp.itemNumber)}</td>');
-              buf.writeln('<td style="text-align: center; vertical-align: middle;" rowspan="${prep.allImageBytes.length}"><img src="data:image/jpeg;base64,$base64" alt="Photo ${i + 1}" style="max-width: 400px;"/></td>');
-              buf.writeln('<td rowspan="${prep.allImageBytes.length}">${_buildAssessmentTypesHtml(codes)}</td>');
-            } else {
-              // Multiple photos merge into the same row as the first
-              buf.writeln('</tr><tr>');
-              buf.writeln('<td colspan="3"><img src="data:image/jpeg;base64,$base64" alt="Photo ${i + 1}" style="max-width: 400px;"/></td>');
-            }
-            buf.writeln('</tr>');
-          }
-        }
-
-        // Bottom row
-        buf.writeln('<tr>');
-        buf.writeln('<td><b>Location:</b> ${_escapeHtml(_resolvedWordLocation(insp))}</td>');
-        buf.writeln('<td><b>Inspector\'s comments:</b> ${_escapeHtml(insp.inspectorComments)}</td>');
-        buf.writeln('<td><b>Impact Category:</b> ${_buildImpactHtml(insp.impactCategory)}</td>');
-        buf.writeln('</tr>');
-        buf.writeln('</table>');
-      }
-    }
-
-    buf.writeln('</body></html>');
-
-    // Create a minimal .docx with the HTML embedded
-    return _createDocxFromHtml(buf.toString());
-  }
-
-  String _buildAssessmentTypesHtml(Set<String> selectedCodes) {
-    final sb = StringBuffer();
-    sb.writeln('<b>Crack:</b><br/>');
-    for (final code in ['FC1', 'FC2', 'FC3', 'FC4']) {
-      final checked = selectedCodes.contains(code);
-      sb.writeln('${checked ? '✓' : '☐'} $code<br/>');
-    }
-    for (final code in ['WC1', 'WC2', 'WC3', 'WC4']) {
-      final checked = selectedCodes.contains(code);
-      sb.writeln('${checked ? '✓' : '☐'} $code<br/>');
-    }
-    sb.writeln('<b>Bent:</b><br/>');
-    for (final code in ['B1', 'B2', 'B3', 'B4']) {
-      final checked = selectedCodes.contains(code);
-      sb.writeln('${checked ? '✓' : '☐'} $code<br/>');
-    }
-    sb.writeln('<b>Damage:</b><br/>');
-    for (final code in ['D1', 'D2', 'D3', 'D4']) {
-      final checked = selectedCodes.contains(code);
-      sb.writeln('${checked ? '✓' : '☐'} $code<br/>');
-    }
-    return sb.toString();
-  }
-
-  String _buildImpactHtml(String impactCategory) {
-    return 'Minor: ${impactCategory == 'Minor' ? '✓' : '☐'} | '
-        'Moderate: ${impactCategory == 'Moderate' ? '✓' : '☐'} | '
-        'Major: ${impactCategory == 'Major' ? '✓' : '☐'}';
-  }
-
-  String _escapeHtml(String text) {
-    return text
-        .replaceAll('&', '&')
-        .replaceAll('<', '<')
-        .replaceAll('>', '>')
-        .replaceAll('"', '"')
-        .replaceAll("'", '&#39;')
-        .replaceAll('\n', '<br/>');
-  }
-
-  String _base64EncodeImage(Uint8List bytes) {
-    return base64Encode(bytes);
-  }
-
-  Future<Uint8List> _createDocxFromHtml(String html) async {
-    // Create a Word doc with HTML body using the mht/doc approach
-    // This produces a .docx that Word can open
-    final content = '''
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:w="urn:schemas-microsoft-com:office:word"
-      xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8">
-<!--[if gte mso 9]>
-<xml>
-<w:WordDocument>
-<w:View>Print</w:View>
-<w:Zoom>100</w:Zoom>
-</w:WordDocument>
-</xml>
-<![endif]-->
-<style>
-/* Styles already embedded in the body content */
-</style>
-</head>
-<body>
-$html
-</body>
-</html>
-''';
-    return Uint8List.fromList(content.codeUnits);
-  }
-
-  String _resolvedWordLocation(InspectionReportModel inspection) {
-    final location = inspection.location.trim();
-    if (location.isNotEmpty) return location;
-    return '-';
   }
 
   pw.Widget _buildTopItemCell(_PreparedPhotoEntry entry) {
@@ -1134,30 +973,33 @@ $html
       padding: const pw.EdgeInsets.only(bottom: 1.5),
       child: pw.Row(
         children: [
-          pw.Container(
-            width: 10,
-            height: 10,
-            decoration: pw.BoxDecoration(
-              color: selected ? PdfColors.green : PdfColors.white,
-              border: pw.Border.all(color: PdfColors.grey700, width: 0.6),
-            ),
-            child: selected
-                ? pw.Center(
-                    child: pw.Text(
-                      '✓',
-                      style: pw.TextStyle(
-                        color: PdfColors.white,
-                        fontWeight: pw.FontWeight.bold,
-                        fontSize: 7,
-                      ),
-                    ),
-                  )
-                : null,
-          ),
+          _drawCheckbox(10, 10, selected),
           pw.SizedBox(width: 3),
           pw.Text(code, style: const pw.TextStyle(fontSize: 8.2)),
         ],
       ),
+    );
+  }
+
+  /// Draw a checkbox square with a vector checkmark when selected.
+  /// Uses SVG to ensure proper rendering regardless of font support.
+  pw.Widget _drawCheckbox(double size, double height, bool selected) {
+    return pw.Container(
+      width: size,
+      height: height,
+      decoration: pw.BoxDecoration(
+        color: selected ? PdfColors.green : PdfColors.white,
+        border: pw.Border.all(color: PdfColors.grey700, width: 0.6),
+      ),
+      child: selected
+          ? pw.SvgImage(
+              svg: '<svg width="$size" height="$height" xmlns="http://www.w3.org/2000/svg">'
+                  '<polyline points="2,${height * 0.55} ${size * 0.35},${height * 0.75} ${size * 0.8},${height * 0.3}" '
+                  'fill="none" stroke="white" stroke-width="1.5" '
+                  'stroke-linecap="round" stroke-linejoin="round"/>'
+                  '</svg>',
+            )
+          : null,
     );
   }
 
@@ -1179,26 +1021,7 @@ $html
   }
 
   pw.Widget _buildCheckBox(bool selected) {
-    return pw.Container(
-      width: 10,
-      height: 10,
-      decoration: pw.BoxDecoration(
-        color: selected ? PdfColors.green400 : PdfColors.grey300,
-        border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
-      ),
-      child: selected
-          ? pw.Center(
-              child: pw.Text(
-                '✓',
-                style: pw.TextStyle(
-                  color: PdfColors.white,
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 7,
-                ),
-              ),
-            )
-          : null,
-    );
+    return _drawCheckbox(10, 10, selected);
   }
 
   String _formatItemLabel(String itemLabel) {

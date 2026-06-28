@@ -22,6 +22,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   late TextEditingController _commentsController;
   late TextEditingController _refNoController;
   late TextEditingController _sectionController;
+  late TextEditingController _siteLocationController;
   bool _scopeInternal = false;
   bool _scopeExternal = false;
   bool _scopeME = false;
@@ -116,6 +117,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     );
     _refNoController = TextEditingController(text: existing?.refNo ?? '');
     _sectionController = TextEditingController(text: existing?.section ?? '');
+    _siteLocationController = TextEditingController(text: existing?.siteLocation ?? '');
     _scopeInternal = existing?.scopeInternal ?? false;
     _scopeExternal = existing?.scopeExternal ?? false;
     _scopeME = existing?.scopeME ?? false;
@@ -139,6 +141,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     _commentsController.dispose();
     _refNoController.dispose();
     _sectionController.dispose();
+    _siteLocationController.dispose();
     super.dispose();
   }
 
@@ -355,6 +358,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
         scopePublicFacilities: _scopePublicFacilities,
         selectedDefectCodes: codes,
         inspectionMode: _inspectionMode,
+        siteLocation: _siteLocationController.text.trim(),
       );
     } else {
       success = await inspectionProvider.updateInspection(
@@ -375,6 +379,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
           scopeME: _scopeME,
           scopePublicFacilities: _scopePublicFacilities,
           selectedDefectCodes: codes,
+          siteLocation: _siteLocationController.text.trim(),
         ),
       );
       if (success) {
@@ -620,6 +625,23 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                 controller: _locationController,
                 decoration: InputDecoration(
                   hintText: 'e.g., Ground Floor Lobby',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Site Location
+              Text(
+                'Site Location',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _siteLocationController,
+                decoration: InputDecoration(
+                  hintText: 'e.g., Hospital Serdang, Apartment Block A',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

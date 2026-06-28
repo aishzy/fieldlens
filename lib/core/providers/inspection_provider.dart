@@ -63,6 +63,7 @@ class InspectionProvider extends ChangeNotifier {
     bool scopePublicFacilities = false,
     List<String> selectedDefectCodes = const [],
     String inspectionMode = 'defect',
+    String siteLocation = '',
   }) async {
     if (_currentUserId.isEmpty) {
       _error = 'No user logged in';
@@ -91,6 +92,7 @@ class InspectionProvider extends ChangeNotifier {
         selectedDefectCodes: selectedDefectCodes,
         timestamp: timestamp ?? DateTime.now(),
         inspectionMode: inspectionMode,
+        siteLocation: siteLocation,
       );
 
       final success = await DatabaseHelper.saveInspectionReport(inspection);
