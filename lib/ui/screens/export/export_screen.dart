@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
@@ -15,7 +17,6 @@ import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/inspection_provider.dart';
-import '../../../core/utils/docx_builder.dart';
 
 class ExportScreen extends StatefulWidget {
   const ExportScreen({super.key});
@@ -96,9 +97,6 @@ class _ExportScreenState extends State<ExportScreen> {
     return 'Downloads > FieldLens Reports';
   }
 
-  // ================================================================
-  // PDF EXPORT
-  // ================================================================
   Future<void> _exportToPDF() async {
     setState(() => _isExporting = true);
     try {
@@ -129,9 +127,6 @@ class _ExportScreenState extends State<ExportScreen> {
 
       final pdf = pw.Document();
 
-      // Get siteLocation from first inspection (session-level field)
-      final siteLocation = inspections.isNotEmpty ? inspections.first.siteLocation : '';
-
       final photoEntries = _expandPhotoEntries(prepared, user?.name, user?.inspectorId);
       for (var start = 0; start < photoEntries.length; start += 2) {
         final pageEntries = photoEntries.skip(start).take(2).toList();
@@ -144,7 +139,7 @@ class _ExportScreenState extends State<ExportScreen> {
               top: _pdfMarginTopCm * PdfPageFormat.cm,
               bottom: _pdfMarginBottomCm * PdfPageFormat.cm,
             ),
-            build: (_) => _buildPdfPage(pageEntries, isFirstPage: start == 0, siteLocation: siteLocation),
+            build: (_) => _buildPdfPage(pageEntries),
           ),
         );
       }
@@ -165,29 +160,15 @@ class _ExportScreenState extends State<ExportScreen> {
     }
   }
 
-  pw.Widget _buildPdfPage(
-    List<_PreparedPhotoEntry> pageEntries, {
-    bool isFirstPage = false,
-    String siteLocation = '',
-  }) {
+  pw.Widget _buildPdfPage(List<_PreparedPhotoEntry> pageEntries) {
+    // Check if all entries on this page use overall mode or defect mode
+    // We need a unified header row - check first entry's mode
     final firstEntry = pageEntries.first;
     final isOverallPage = firstEntry.prepared.inspection.isOverallMode;
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        // Show Site Location only on the first page
-        if (isFirstPage && siteLocation.trim().isNotEmpty)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(bottom: 4),
-            child: pw.Text(
-              'Site Location: ${siteLocation.trim()}',
-              style: pw.TextStyle(
-                fontSize: 9,
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
-          ),
         if (isOverallPage)
           _buildOverallGridHeaderRow()
         else
@@ -204,7 +185,7 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   // ================================================================
-  // TEMPLATE 1 - OVERALL VIEW HEADER
+  // TEMPLATE 1 - OVERALL VIEW HEADER (image_211c29.png style)
   // ================================================================
   pw.Widget _buildOverallGridHeaderRow() {
     return pw.Container(
@@ -224,7 +205,7 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   // ================================================================
-  // TEMPLATE 2 - DEFECT ASSESSMENT HEADER
+  // TEMPLATE 2 - DEFECT ASSESSMENT HEADER (image_211ca5.png style)
   // ================================================================
   pw.Widget _buildDefectGridHeaderRow() {
     return pw.Container(
@@ -329,6 +310,8 @@ class _ExportScreenState extends State<ExportScreen> {
 
   // ================================================================
   // TEMPLATE 1 - OVERALL VIEW ITEM BLOCK
+  // Two columns: "ITEM" (Narrow) and "PHOTO" (Wide, spans rest)
+  // Bottom: "Location:" (Left) and "Inspector's comments:" (Right)
   // ================================================================
   pw.Widget _buildOverallItemBlock(_PreparedPhotoEntry entry) {
     final inspection = entry.prepared.inspection;
@@ -362,10 +345,12 @@ class _ExportScreenState extends State<ExportScreen> {
       ),
       child: pw.Column(
         children: [
+          // Top row: ITEM | PHOTO (full remaining width)
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               _buildTopItemCell(entry),
+              // Photo spans remaining width (no assessment column)
               pw.Expanded(
                 child: pw.Container(
                   height: _pdfTopRowHeight,
@@ -380,9 +365,11 @@ class _ExportScreenState extends State<ExportScreen> {
               ),
             ],
           ),
+          // Bottom row: Location | Inspector's comments (both span full width)
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
+              // "Location:" left side (proportional width ~30%)
               pw.Expanded(
                 flex: 3,
                 child: pw.Container(
@@ -411,6 +398,7 @@ class _ExportScreenState extends State<ExportScreen> {
                   ),
                 ),
               ),
+              // "Inspector's comments:" right side (remaining ~70%)
               pw.Expanded(
                 flex: 7,
                 child: _buildOverallCommentsCell(entry, inspection),
@@ -466,6 +454,8 @@ class _ExportScreenState extends State<ExportScreen> {
 
   // ================================================================
   // TEMPLATE 2 - DEFECT ASSESSMENT ITEM BLOCK
+  // Three columns: "ITEM", "PHOTO", "ASSESSMENT TYPES"
+  // Bottom: "Location:", "Inspector's comments:", "Impact Category:"
   // ================================================================
   pw.Widget _buildDefectItemBlock(_PreparedPhotoEntry entry) {
     final inspection = entry.prepared.inspection;
@@ -664,17 +654,15 @@ class _ExportScreenState extends State<ExportScreen> {
     }
   }
 
-  // ================================================================
-  // WORD (.docx) EXPORT
-  // ================================================================
-  Future<void> _exportToWord() async {
+  Future<void> _exportToDocx() async {
     setState(() => _isExporting = true);
     try {
       final authProvider = context.read<AuthProvider>();
       final inspectionProvider = context.read<InspectionProvider>();
       final inspections = List<InspectionReportModel>.from(
-       inspectionProvider.inspections,
+        inspectionProvider.inspections,
       )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
       if (inspections.isEmpty) {
         throw Exception('No inspections available');
       }
@@ -695,17 +683,12 @@ class _ExportScreenState extends State<ExportScreen> {
         }),
       );
 
-      // Get siteLocation from first inspection (session-level field)
-      final siteLocation = inspections.isNotEmpty ? inspections.first.siteLocation : '';
-
-      // Build a proper OpenXML docx using DocxBuilder
-      final docxBytes = DocxBuilder.buildReport(
-        inspections,
-        user?.name ?? '',
-        user?.inspectorId ?? '',
-        prepared.map((p) => p.allImageBytes).toList(),
-        siteLocation: siteLocation,
+      final photoEntries = _expandPhotoEntries(
+        prepared,
+        user?.name,
+        user?.inspectorId,
       );
+      final bytes = _buildDocxBytes(photoEntries, user?.name, user?.inspectorId);
 
       final output = await _resolveExportDirectory();
       final file = File(
@@ -714,14 +697,595 @@ class _ExportScreenState extends State<ExportScreen> {
           'FieldLens_Report_all_inspections_${DateTime.now().millisecondsSinceEpoch}.docx',
         ),
       );
-      await file.writeAsBytes(docxBytes, flush: true);
-      _showSuccess('Word document saved in ${_friendlyFolderLabel()}', file);
+      await file.writeAsBytes(bytes, flush: true);
+      _showSuccess('Word saved in ${_friendlyFolderLabel()}', file);
     } catch (e) {
-      _showFailure('Error exporting Word: $e');
+      _showFailure('Error exporting Word document: $e');
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
   }
+
+  Uint8List _buildDocxBytes(
+    List<_PreparedPhotoEntry> entries,
+    String? inspectorName,
+    String? inspectorId,
+  ) {
+    final pageGroups = <List<_PreparedPhotoEntry>>[];
+    for (var i = 0; i < entries.length; i += 2) {
+      pageGroups.add(entries.skip(i).take(2).toList());
+    }
+
+    final mediaAssets = <_DocxMediaAsset>[];
+    final body = StringBuffer();
+    for (var i = 0; i < pageGroups.length; i++) {
+      final pageEntries = pageGroups[i];
+      final isOverallPage = pageEntries.first.prepared.inspection.isOverallMode;
+      body.write(_buildDocxPageXml(pageEntries, isOverallPage, mediaAssets));
+      if (i != pageGroups.length - 1) {
+        body.write(_docxPageBreak());
+      }
+    }
+
+    final documentXml = _buildDocxDocumentXml(body.toString());
+    final relsXml = _buildDocxDocumentRels(mediaAssets);
+    final stylesXml = _buildDocxStylesXml();
+    final contentTypesXml = _buildDocxContentTypes(mediaAssets);
+    final appXml = _buildDocxAppXml();
+    final coreXml = _buildDocxCoreXml();
+
+    final archive = Archive()
+      ..addFile(ArchiveFile.string('[Content_Types].xml', contentTypesXml))
+      ..addFile(ArchiveFile.string('_rels/.rels', _buildDocxRootRelsXml()))
+      ..addFile(ArchiveFile.string('docProps/app.xml', appXml))
+      ..addFile(ArchiveFile.string('docProps/core.xml', coreXml))
+      ..addFile(ArchiveFile.string('word/document.xml', documentXml))
+      ..addFile(ArchiveFile.string('word/_rels/document.xml.rels', relsXml))
+      ..addFile(ArchiveFile.string('word/styles.xml', stylesXml));
+
+    for (final asset in mediaAssets) {
+      archive.addFile(ArchiveFile(asset.path, asset.bytes.length, asset.bytes));
+    }
+
+    final encoded = ZipEncoder().encode(archive);
+    if (encoded == null) {
+      throw Exception('Failed to build DOCX archive');
+    }
+    return Uint8List.fromList(encoded);
+  }
+
+  String _buildDocxPageXml(
+    List<_PreparedPhotoEntry> pageEntries,
+    bool isOverallPage,
+    List<_DocxMediaAsset> mediaAssets,
+  ) {
+    final rowBuilder = StringBuffer();
+    rowBuilder.write(_docxTableStart(
+      isOverallPage ? [822, 9082] : [822, 5557, 3525],
+      header: true,
+    ));
+    if (isOverallPage) {
+      rowBuilder.write(_docxHeaderRow(['ITEM', 'PHOTO'], [822, 9082]));
+    } else {
+      rowBuilder.write(_docxHeaderRow(['ITEM', 'PHOTO', 'ASSESSMENT TYPES'], [822, 5557, 3525]));
+    }
+
+    for (final entry in pageEntries) {
+      if (isOverallPage) {
+        rowBuilder.write(_buildDocxOverallEntryRows(entry, mediaAssets));
+      } else {
+        rowBuilder.write(_buildDocxDefectEntryRows(entry, mediaAssets));
+      }
+    }
+
+    rowBuilder.write(_docxTableEnd());
+    return rowBuilder.toString();
+  }
+
+  String _buildDocxOverallEntryRows(
+    _PreparedPhotoEntry entry,
+    List<_DocxMediaAsset> mediaAssets,
+  ) {
+    final inspection = entry.prepared.inspection;
+    final itemLabel = _formatItemLabel(entry.itemLabel);
+    final photoXml = entry.imageBytes != null
+        ? _docxImageXml(
+            entry.imageBytes!,
+            mediaAssets,
+            _emuFromCm(9.8),
+            _emuFromCm(8.8),
+          )
+        : _docxParagraph('No Image', sizePt: 7.5, color: '808080', align: 'center');
+
+    final commentXml = _docxCommentsCell(entry, inspection);
+    final locationXml = _docxLocationCell(inspection);
+
+    return [
+      _docxTableRow([
+        _docxCell(
+          _docxParagraph(itemLabel, bold: true, sizePt: 9.5),
+          widthTwips: 822,
+          vAlign: 'top',
+        ),
+        _docxCell(
+          photoXml,
+          widthTwips: 9082,
+          paddingTwips: 60,
+          vAlign: 'top',
+          align: 'center',
+        ),
+      ], heightTwips: 5050),
+      _docxTableRow([
+        _docxCell(locationXml, widthTwips: 2971, paddingTwips: 48, vAlign: 'top'),
+        _docxCell(commentXml, widthTwips: 6933, paddingTwips: 72, vAlign: 'top'),
+      ], heightTwips: 1000),
+    ].join();
+  }
+
+  String _buildDocxDefectEntryRows(
+    _PreparedPhotoEntry entry,
+    List<_DocxMediaAsset> mediaAssets,
+  ) {
+    final inspection = entry.prepared.inspection;
+    final itemLabel = _formatItemLabel(entry.itemLabel);
+    final photoXml = entry.imageBytes != null
+        ? _docxImageXml(
+            entry.imageBytes!,
+            mediaAssets,
+            _emuFromCm(9.8),
+            _emuFromCm(8.8),
+          )
+        : _docxParagraph('No Image', sizePt: 7.5, color: '808080', align: 'center');
+
+    final assessmentXml = _docxAssessmentCell(inspection.selectedDefectCodes.toSet());
+    final locationXml = _docxLocationCell(inspection);
+    final commentsXml = _docxCommentsCell(entry, inspection);
+    final impactXml = _docxImpactCell(inspection);
+
+    return [
+      _docxTableRow([
+        _docxCell(
+          _docxParagraph(itemLabel, bold: true, sizePt: 9.5),
+          widthTwips: 822,
+          vAlign: 'top',
+        ),
+        _docxCell(
+          photoXml,
+          widthTwips: 5557,
+          paddingTwips: 60,
+          vAlign: 'top',
+          align: 'center',
+        ),
+        _docxCell(
+          assessmentXml,
+          widthTwips: 3525,
+          paddingTwips: 40,
+          vAlign: 'top',
+        ),
+      ], heightTwips: 5050),
+      _docxTableRow([
+        _docxCell(locationXml, widthTwips: 822, paddingTwips: 48, vAlign: 'top'),
+        _docxCell(commentsXml, widthTwips: 5557, paddingTwips: 72, vAlign: 'top'),
+        _docxCell(impactXml, widthTwips: 3525, paddingTwips: 48, vAlign: 'top'),
+      ], heightTwips: 1000),
+    ].join();
+  }
+
+  String _docxCommentsCell(
+    _PreparedPhotoEntry entry,
+    InspectionReportModel inspection,
+  ) {
+    final lines = _formatComments(inspection.inspectorComments);
+    final buffer = StringBuffer();
+    buffer.write(_docxParagraph("Inspector's comments:", bold: true, sizePt: 8.5));
+    for (final line in lines) {
+      buffer.write(_docxParagraph(line, sizePt: 7.7));
+    }
+    if (entry.inspectorLabel.isNotEmpty) {
+      buffer.write(_docxParagraph(
+        'Inspector: ${entry.inspectorLabel}',
+        sizePt: 7.1,
+      ));
+    }
+    return buffer.toString();
+  }
+
+  String _docxLocationCell(InspectionReportModel inspection) {
+    return [
+      _docxParagraph('Location:', bold: true, sizePt: 8.5),
+      _docxParagraph(_resolvedPdfLocation(inspection), sizePt: 7.8),
+    ].join();
+  }
+
+  String _docxImpactCell(InspectionReportModel inspection) {
+    final buffer = StringBuffer();
+    buffer.write(_docxParagraph('Impact Category:', bold: true, sizePt: 8.5));
+    for (final item in [
+      ('Minor:', inspection.impactCategory == 'Minor'),
+      ('Moderate:', inspection.impactCategory == 'Moderate'),
+      ('Major:', inspection.impactCategory == 'Major'),
+    ]) {
+      buffer.write(_docxTwoColumnLine(item.$1, item.$2));
+    }
+    return buffer.toString();
+  }
+
+  String _docxAssessmentCell(Set<String> selectedCodes) {
+    final buffer = StringBuffer();
+    buffer.write(_docxAssessmentSection(
+      'Crack:',
+      const ['FC1', 'FC2', 'FC3', 'FC4'],
+      const ['WC1', 'WC2', 'WC3', 'WC4'],
+      selectedCodes,
+      showBottomBorder: true,
+    ));
+    buffer.write(_docxAssessmentSection(
+      'Bent:',
+      const ['B1', 'B2'],
+      const ['B3', 'B4'],
+      selectedCodes,
+      showBottomBorder: true,
+    ));
+    buffer.write(_docxAssessmentSection(
+      'Damage:',
+      const ['D1', 'D2'],
+      const ['D3', 'D4'],
+      selectedCodes,
+      showBottomBorder: false,
+    ));
+    return buffer.toString();
+  }
+
+  String _docxAssessmentSection(
+    String title,
+    List<String> leftCodes,
+    List<String> rightCodes,
+    Set<String> selectedCodes, {
+    required bool showBottomBorder,
+  }) {
+    final buffer = StringBuffer();
+    buffer.write(_docxParagraph(title, bold: true, sizePt: 8.5));
+    buffer.write('<w:tbl>');
+    buffer.write(_docxTblPr(borderTwips: 6));
+    buffer.write('<w:tblGrid><w:gridCol w:w="1700"/><w:gridCol w:w="1700"/></w:tblGrid>');
+    for (var i = 0; i < leftCodes.length; i++) {
+      buffer.write('<w:tr>');
+      buffer.write(_docxCell(
+        _docxParagraph('${_docxCheckbox(selectedCodes.contains(leftCodes[i]))} ${leftCodes[i]}', sizePt: 8.2),
+        widthTwips: 1700,
+        paddingTwips: 20,
+        vAlign: 'top',
+      ));
+      buffer.write(_docxCell(
+        _docxParagraph('${_docxCheckbox(selectedCodes.contains(rightCodes[i]))} ${rightCodes[i]}', sizePt: 8.2),
+        widthTwips: 1700,
+        paddingTwips: 20,
+        vAlign: 'top',
+      ));
+      buffer.write('</w:tr>');
+    }
+    buffer.write('</w:tbl>');
+    return buffer.toString();
+  }
+
+  String _docxTwoColumnLine(String label, bool selected) {
+    return [
+      _docxParagraph(
+        label,
+        bold: true,
+        sizePt: 8.3,
+        rightText: _docxCheckbox(selected),
+      ),
+    ].join();
+  }
+
+  int _emuFromCm(double cm) => (cm * 360000).round();
+
+  String _docxCheckbox(bool selected) => selected ? '☑' : '☐';
+
+  String _docxImageXml(
+    Uint8List bytes,
+    List<_DocxMediaAsset> mediaAssets,
+    int widthEmu,
+    int heightEmu,
+  ) {
+    final asset = _DocxMediaAsset(
+      path: 'word/media/image${mediaAssets.length + 1}.jpg',
+      bytes: bytes,
+      contentType: 'image/jpeg',
+      relationshipId: 'rIdImage${mediaAssets.length + 1}',
+    );
+    mediaAssets.add(asset);
+    return '''
+<w:p>
+  <w:pPr><w:jc w:val="center"/></w:pPr>
+  <w:r>
+    <w:drawing>
+      <wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+        <wp:extent cx="$widthEmu" cy="$heightEmu"/>
+        <wp:docPr id="${mediaAssets.length}" name="Image ${mediaAssets.length}"/>
+        <wp:cNvGraphicFramePr>
+          <a:graphicFrameLocks noChangeAspect="1" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>
+        </wp:cNvGraphicFramePr>
+        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+              <pic:nvPicPr>
+                <pic:cNvPr id="${mediaAssets.length}" name="Image ${mediaAssets.length}"/>
+                <pic:cNvPicPr/>
+              </pic:nvPicPr>
+              <pic:blipFill>
+                <a:blip r:embed="${asset.relationshipId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
+                <a:stretch><a:fillRect/></a:stretch>
+              </pic:blipFill>
+              <pic:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="$widthEmu" cy="$heightEmu"/></a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+              </pic:spPr>
+            </pic:pic>
+          </a:graphicData>
+        </a:graphic>
+      </wp:inline>
+    </w:drawing>
+  </w:r>
+</w:p>
+''';
+  }
+
+  String _docxParagraph(
+    String text, {
+    bool bold = false,
+    double sizePt = 8.0,
+    String color = '000000',
+    String align = 'left',
+    String? rightText,
+  }) {
+    final runs = <String>[];
+    runs.add(_docxRun(text, bold: bold, sizePt: sizePt, color: color));
+    if (rightText != null) {
+      runs.add(_docxRun(rightText, bold: true, sizePt: sizePt, color: color));
+    }
+    return '''
+<w:p>
+  <w:pPr><w:jc w:val="$align"/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>
+  ${runs.join()}
+</w:p>
+''';
+  }
+
+  String _docxRun(
+    String text, {
+    bool bold = false,
+    double sizePt = 8.0,
+    String color = '000000',
+  }) {
+    return '''
+<w:r>
+  <w:rPr>
+    ${bold ? '<w:b/>' : ''}
+    <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial"/>
+    <w:sz w:val="${(sizePt * 2).round()}"/>
+    <w:szCs w:val="${(sizePt * 2).round()}"/>
+    <w:color w:val="$color"/>
+  </w:rPr>
+  <w:t>${_xmlEscape(text)}</w:t>
+</w:r>
+''';
+  }
+
+  String _docxCell(
+    String innerXml, {
+    required int widthTwips,
+    int paddingTwips = 0,
+    String vAlign = 'top',
+    String align = 'left',
+  }) {
+    return '''
+<w:tc>
+  <w:tcPr>
+    <w:tcW w:w="$widthTwips" w:type="dxa"/>
+    <w:vAlign w:val="$vAlign"/>
+    <w:tcMar>
+      <w:top w:w="$paddingTwips" w:type="dxa"/>
+      <w:left w:w="$paddingTwips" w:type="dxa"/>
+      <w:bottom w:w="$paddingTwips" w:type="dxa"/>
+      <w:right w:w="$paddingTwips" w:type="dxa"/>
+    </w:tcMar>
+    <w:tcBorders>
+      <w:top w:val="single" w:sz="6" w:color="000000"/>
+      <w:left w:val="single" w:sz="6" w:color="000000"/>
+      <w:bottom w:val="single" w:sz="6" w:color="000000"/>
+      <w:right w:val="single" w:sz="6" w:color="000000"/>
+    </w:tcBorders>
+  </w:tcPr>
+  ${innerXml.isEmpty ? '<w:p/>' : innerXml}
+</w:tc>
+''';
+  }
+
+  String _docxTableRow(List<String> cells, {int? heightTwips}) {
+    final buffer = StringBuffer('<w:tr>');
+    if (heightTwips != null) {
+      buffer.write('<w:trPr><w:trHeight w:val="$heightTwips" w:hRule="atLeast"/></w:trPr>');
+    }
+    for (final cell in cells) {
+      buffer.write(cell);
+    }
+    buffer.write('</w:tr>');
+    return buffer.toString();
+  }
+
+  String _docxHeaderRow(List<String> titles, List<int> widths) {
+    final cells = <String>[];
+    for (var i = 0; i < titles.length; i++) {
+      cells.add(_docxCell(
+        _docxParagraph(titles[i], bold: true, sizePt: 8.5, align: 'center'),
+        widthTwips: widths[i],
+        paddingTwips: 0,
+        vAlign: 'center',
+        align: 'center',
+      ));
+    }
+    return _docxTableRow(cells, heightTwips: 240);
+  }
+
+  String _docxTableStart(List<int> widths, {bool header = false}) {
+    final grid = widths.map((w) => '<w:gridCol w:w="$w"/>').join();
+    return '<w:tbl><w:tblPr>${_docxTblPr(borderTwips: 6)}</w:tblPr><w:tblGrid>$grid</w:tblGrid>';
+  }
+
+  String _docxTableEnd() => '</w:tbl>';
+
+  String _docxTblPr({required int borderTwips}) {
+    return '''
+<w:tblW w:w="0" w:type="auto"/>
+<w:tblBorders>
+  <w:top w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:left w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:bottom w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:right w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:insideH w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:insideV w:val="single" w:sz="$borderTwips" w:color="000000"/>
+</w:tblBorders>
+<w:tblCellMar>
+  <w:top w:w="0" w:type="dxa"/>
+  <w:left w:w="0" w:type="dxa"/>
+  <w:bottom w:w="0" w:type="dxa"/>
+  <w:right w:w="0" w:type="dxa"/>
+</w:tblCellMar>
+''';
+  }
+
+  String _docxPageBreak() => '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+  String _buildDocxDocumentXml(String bodyXml) {
+    final pageWidth = 11906;
+    final pageHeight = 16838;
+    final marginLeft = (1.80 * 567).round();
+    final marginRight = (1.73 * 567).round();
+    final marginTop = (2.12 * 567).round();
+    final marginBottom = (2.47 * 567).round();
+
+    return '''
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+ xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+ xmlns:v="urn:schemas-microsoft-com:vml"
+ xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+ xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+ xmlns:w10="urn:schemas-microsoft-com:office:word"
+ xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+ xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+ xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+ xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+ xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+ mc:Ignorable="w14 wp14">
+  <w:body>
+    $bodyXml
+    <w:sectPr>
+      <w:pgSz w:w="$pageWidth" w:h="$pageHeight"/>
+      <w:pgMar w:top="$marginTop" w:right="$marginRight" w:bottom="$marginBottom" w:left="$marginLeft" w:header="0" w:footer="0" w:gutter="0"/>
+      <w:cols w:space="720"/>
+      <w:docGrid w:linePitch="360"/>
+    </w:sectPr>
+  </w:body>
+</w:document>
+''';
+  }
+
+  String _buildDocxDocumentRels(List<_DocxMediaAsset> mediaAssets) {
+    final buffer = StringBuffer('''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">''');
+    for (var i = 0; i < mediaAssets.length; i++) {
+      final asset = mediaAssets[i];
+      buffer.write('''
+  <Relationship Id="${asset.relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${asset.path.replaceFirst('word/', '')}"/>''');
+    }
+    buffer.write('</Relationships>');
+    return buffer.toString();
+  }
+
+  String _buildDocxRootRelsXml() {
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>''';
+  }
+
+  String _buildDocxStylesXml() {
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+    <w:qFormat/>
+    <w:rPr>
+      <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial"/>
+      <w:sz w:val="22"/>
+      <w:szCs w:val="22"/>
+    </w:rPr>
+  </w:style>
+</w:styles>''';
+  }
+
+  String _buildDocxContentTypes(List<_DocxMediaAsset> mediaAssets) {
+    final defaults = <String, String>{
+      'rels': 'application/vnd.openxmlformats-package.relationships+xml',
+      'xml': 'application/xml',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+    };
+    final seenExt = <String>{};
+    final buffer = StringBuffer('''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="${defaults['rels']}"/>
+  <Default Extension="xml" ContentType="${defaults['xml']}"/>''');
+    for (final asset in mediaAssets) {
+      final ext = p.extension(asset.path).replaceFirst('.', '').toLowerCase();
+      if (seenExt.add(ext)) {
+        buffer.write('\n  <Default Extension="$ext" ContentType="${defaults[ext] ?? 'image/jpeg'}"/>');
+      }
+    }
+    buffer.write('''
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>''');
+    return buffer.toString();
+  }
+
+  String _buildDocxAppXml() {
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+ xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Microsoft Word</Application>
+</Properties>''';
+  }
+
+  String _buildDocxCoreXml() {
+    final now = DateTime.now().toUtc().toIso8601String();
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:dcterms="http://purl.org/dc/terms/"
+ xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>FieldLens Report</dc:title>
+  <dc:creator>FieldLens</dc:creator>
+  <cp:lastModifiedBy>FieldLens</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
+</cp:coreProperties>''';
+  }
+
+  String _xmlEscape(String text) => const HtmlEscape(HtmlEscapeMode.element).convert(text);
 
   pw.Widget _buildTopItemCell(_PreparedPhotoEntry entry) {
     return pw.Container(
@@ -796,6 +1360,7 @@ class _ExportScreenState extends State<ExportScreen> {
     if (location.isNotEmpty) {
       return location;
     }
+
     return '-';
   }
 
@@ -869,137 +1434,109 @@ class _ExportScreenState extends State<ExportScreen> {
 
   pw.Widget _buildAssessmentCell(Set<String> selectedCodes) {
     return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        // Crack section
-        pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 1),
-          child: pw.Text(
-            'Crack:',
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+        pw.Expanded(
+          flex: 5,
+          child: _buildAssessmentSection(
+            title: 'Crack:',
+            leftCodes: const ['FC1', 'FC2', 'FC3', 'FC4'],
+            rightCodes: const ['WC1', 'WC2', 'WC3', 'WC4'],
+            selectedCodes: selectedCodes,
+            showBottomBorder: true,
           ),
         ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(4, 0, 4, 1),
-          child: pw.Row(
-            children: [
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: const ['FC1', 'FC2', 'FC3', 'FC4']
-                      .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                      .toList(),
-                ),
-              ),
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: const ['WC1', 'WC2', 'WC3', 'WC4']
-                      .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                      .toList(),
-                ),
-              ),
-            ],
+        pw.Expanded(
+          flex: 3,
+          child: _buildAssessmentSection(
+            title: 'Bent:',
+            leftCodes: const ['B1', 'B2'],
+            rightCodes: const ['B3', 'B4'],
+            selectedCodes: selectedCodes,
+            showBottomBorder: true,
           ),
         ),
-        // Bent section
-        pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(4, 1, 4, 1),
-          child: pw.Text(
-            'Bent:',
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
-          ),
-        ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(4, 0, 4, 1),
-          child: pw.Row(
-            children: [
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: const ['B1', 'B2']
-                      .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                      .toList(),
-                ),
-              ),
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: const ['B3', 'B4']
-                      .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Damage section
-        pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(4, 1, 4, 2),
-          child: pw.Text(
-            'Damage:',
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
-          ),
-        ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(4, 0, 4, 2),
-          child: pw.Row(
-            children: [
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: const ['D1', 'D2']
-                      .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                      .toList(),
-                ),
-              ),
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: const ['D3', 'D4']
-                      .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
-                      .toList(),
-                ),
-              ),
-            ],
+        pw.Expanded(
+          flex: 3,
+          child: _buildAssessmentSection(
+            title: 'Damage:',
+            leftCodes: const ['D1', 'D2'],
+            rightCodes: const ['D3', 'D4'],
+            selectedCodes: selectedCodes,
+            showBottomBorder: false,
           ),
         ),
       ],
     );
   }
 
-  pw.Widget _buildAssessmentCodeLine(String code, bool selected) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 1.5),
-      child: pw.Row(
+  pw.Widget _buildAssessmentSection({
+    required String title,
+    required List<String> leftCodes,
+    required List<String> rightCodes,
+    required Set<String> selectedCodes,
+    required bool showBottomBorder,
+  }) {
+    final border = showBottomBorder
+        ? const pw.Border(
+            bottom: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          )
+        : null;
+
+    return pw.Container(
+      decoration: border == null ? null : pw.BoxDecoration(border: border),
+      padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          _drawCheckbox(10, 10, selected),
-          pw.SizedBox(width: 3),
-          pw.Text(code, style: const pw.TextStyle(fontSize: 8.2)),
+          pw.Text(
+            title,
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 1.5),
+          pw.Expanded(
+            child: pw.Row(
+              children: [
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.only(right: 4),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: leftCodes
+                          .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
+                          .toList(),
+                    ),
+                  ),
+                ),
+                pw.Container(width: _pdfGridBorderWidth, color: PdfColors.black),
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.only(left: 4),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: rightCodes
+                          .map((code) => _buildAssessmentCodeLine(code, selectedCodes.contains(code)))
+                          .toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  /// Draw a checkbox square with a vector checkmark when selected.
-  /// Uses SVG to ensure proper rendering regardless of font support.
-  pw.Widget _drawCheckbox(double size, double height, bool selected) {
-    return pw.Container(
-      width: size,
-      height: height,
-      decoration: pw.BoxDecoration(
-        color: selected ? PdfColors.green : PdfColors.white,
-        border: pw.Border.all(color: PdfColors.grey700, width: 0.6),
+  pw.Widget _buildAssessmentCodeLine(String code, bool selected) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 2),
+      child: pw.Row(
+        children: [
+          _buildCheckBox(selected),
+          pw.SizedBox(width: 3),
+          pw.Text(code, style: const pw.TextStyle(fontSize: 8.2)),
+        ],
       ),
-      child: selected
-          ? pw.SvgImage(
-              svg: '<svg width="$size" height="$height" xmlns="http://www.w3.org/2000/svg">'
-                  '<polyline points="2,${height * 0.55} ${size * 0.35},${height * 0.75} ${size * 0.8},${height * 0.3}" '
-                  'fill="none" stroke="white" stroke-width="1.5" '
-                  'stroke-linecap="round" stroke-linejoin="round"/>'
-                  '</svg>',
-            )
-          : null,
     );
   }
 
@@ -1021,7 +1558,26 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   pw.Widget _buildCheckBox(bool selected) {
-    return _drawCheckbox(10, 10, selected);
+    return pw.Container(
+      width: 10,
+      height: 10,
+      decoration: pw.BoxDecoration(
+        color: selected ? PdfColors.green400 : PdfColors.grey300,
+        border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
+      ),
+      child: selected
+          ? pw.Center(
+              child: pw.Text(
+                '☑',
+                style: pw.TextStyle(
+                  color: PdfColors.black,
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 7,
+                ),
+              ),
+            )
+          : null,
+    );
   }
 
   String _formatItemLabel(String itemLabel) {
@@ -1151,18 +1707,6 @@ class _ExportScreenState extends State<ExportScreen> {
               width: double.infinity,
               height: 52,
               child: ElevatedButton.icon(
-                onPressed: _isExporting || count == 0 ? null : _exportToWord,
-                icon: const Icon(Icons.description),
-                label: Text(_isExporting
-                    ? 'Exporting...'
-                    : 'Export Word (with images)'),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton.icon(
                 onPressed: _isExporting || count == 0 ? null : _exportToExcel,
                 icon: const Icon(Icons.table_chart),
                 label: Text(_isExporting
@@ -1170,9 +1714,20 @@ class _ExportScreenState extends State<ExportScreen> {
                     : 'Export Excel (with images)'),
               ),
             ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _isExporting || count == 0 ? null : _exportToDocx,
+                icon: const Icon(Icons.description),
+                label: Text(
+                    _isExporting ? 'Exporting...' : 'Export Word (DOCX)'),
+              ),
+            ),
             const SizedBox(height: 16),
             const Text(
-              'PDF uses Times New Roman 11pt. Word documents include all photos inline.',
+              'Excel now embeds image thumbnails directly in each row.',
             ),
           ],
         ),
@@ -1203,5 +1758,19 @@ class _PreparedPhotoEntry {
     this.imageBytes,
     this.photoIndex = 0,
     this.totalPhotos = 0,
+  });
+}
+
+class _DocxMediaAsset {
+  final String path;
+  final Uint8List bytes;
+  final String contentType;
+  final String relationshipId;
+
+  _DocxMediaAsset({
+    required this.path,
+    required this.bytes,
+    required this.contentType,
+    required this.relationshipId,
   });
 }

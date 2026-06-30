@@ -21,7 +21,6 @@ class InspectionReportModel {
   final DateTime timestamp;
   final bool isSynced;
   final String inspectionMode; // 'overall' for Overall View, 'defect' for Defect Assessment
-  final String siteLocation; // overall inspection site, e.g. "Hospital Serdang"
 
   InspectionReportModel({
     required this.id,
@@ -44,7 +43,6 @@ class InspectionReportModel {
     required this.timestamp,
     this.isSynced = false,
     this.inspectionMode = 'defect', // default to defect assessment mode
-    this.siteLocation = '',
   });
 
   bool get isOverallMode => inspectionMode == 'overall';
@@ -75,7 +73,6 @@ class InspectionReportModel {
       'timestamp': timestamp.toIso8601String(),
       'is_synced': isSynced ? 1 : 0,
       'inspection_mode': inspectionMode,
-      'site_location': siteLocation,
     };
   }
 
@@ -132,7 +129,6 @@ class InspectionReportModel {
       timestamp: DateTime.parse(map['timestamp'] as String),
       isSynced: (map['is_synced'] as int) == 1,
       inspectionMode: (map['inspection_mode'] ?? 'defect') as String,
-      siteLocation: (map['site_location'] ?? '') as String,
     );
   }
 
@@ -157,7 +153,6 @@ class InspectionReportModel {
     DateTime? timestamp,
     bool? isSynced,
     String? inspectionMode,
-    String? siteLocation,
   }) {
     return InspectionReportModel(
       id: id ?? this.id,
@@ -181,7 +176,6 @@ class InspectionReportModel {
       timestamp: timestamp ?? this.timestamp,
       isSynced: isSynced ?? this.isSynced,
       inspectionMode: inspectionMode ?? this.inspectionMode,
-      siteLocation: siteLocation ?? this.siteLocation,
     );
   }
 }
