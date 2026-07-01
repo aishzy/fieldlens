@@ -1623,17 +1623,17 @@ class _ExportScreenState extends State<ExportScreen> {
       width: 10,
       height: 10,
       decoration: pw.BoxDecoration(
-        color: selected ? PdfColors.green400 : PdfColors.grey300,
+        color: PdfColors.white,
         border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
       ),
       child: selected
           ? pw.Center(
               child: pw.Text(
-                '☑',
+                '✓',
                 style: pw.TextStyle(
                   color: PdfColors.black,
                   fontWeight: pw.FontWeight.bold,
-                  fontSize: 7,
+                  fontSize: 8,
                 ),
               ),
             )
