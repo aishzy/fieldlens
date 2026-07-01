@@ -759,15 +759,18 @@ class _ExportScreenState extends State<ExportScreen> {
     bool isOverallPage,
     List<_DocxMediaAsset> mediaAssets,
   ) {
+    final defectItemWidth = _twipsFromCm(1.45);
+    final defectPhotoWidth = _twipsFromCm(9.8) + _twipsFromPt(6);
+    final defectColumnWidths = [defectItemWidth, defectPhotoWidth, 9904 - defectItemWidth - defectPhotoWidth];
     final rowBuilder = StringBuffer();
     rowBuilder.write(_docxTableStart(
-      isOverallPage ? [822, 9082] : [822, 5557, 3525],
+      isOverallPage ? [822, 9082] : defectColumnWidths,
       header: true,
     ));
     if (isOverallPage) {
       rowBuilder.write(_docxHeaderRow(['ITEM', 'PHOTO'], [822, 9082]));
     } else {
-      rowBuilder.write(_docxHeaderRow(['ITEM', 'PHOTO', 'ASSESSMENT TYPES'], [822, 5557, 3525]));
+      rowBuilder.write(_docxHeaderRow(['ITEM', 'PHOTO', 'ASSESSMENT TYPES'], defectColumnWidths));
     }
 
     for (final entry in pageEntries) {
@@ -805,20 +808,39 @@ class _ExportScreenState extends State<ExportScreen> {
         _docxCell(
           _docxParagraph(itemLabel, bold: true, sizePt: 9.5),
           widthTwips: 822,
+          paddingTopTwips: _twipsFromPt(4),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(2),
           vAlign: 'top',
         ),
         _docxCell(
           photoXml,
           widthTwips: 9082,
-          paddingTwips: 60,
+          paddingTwips: _twipsFromPt(3),
           vAlign: 'top',
           align: 'center',
         ),
-      ], heightTwips: 5050),
+      ], heightTwips: _twipsFromCm(8.8) + _twipsFromPt(6)),
       _docxTableRow([
-        _docxCell(locationXml, widthTwips: 2971, paddingTwips: 48, vAlign: 'top'),
-        _docxCell(commentXml, widthTwips: 6933, paddingTwips: 72, vAlign: 'top'),
-      ], heightTwips: 1000),
+        _docxCell(
+          locationXml,
+          widthTwips: 2971,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(3),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          commentXml,
+          widthTwips: 6933,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(6),
+          paddingRightTwips: _twipsFromPt(6),
+          vAlign: 'top',
+        ),
+      ], heightTwips: _twipsFromPt(56)),
     ].join();
   }
 
@@ -826,6 +848,8 @@ class _ExportScreenState extends State<ExportScreen> {
     _PreparedPhotoEntry entry,
     List<_DocxMediaAsset> mediaAssets,
   ) {
+    final photoColumnWidth = _twipsFromCm(9.8) + _twipsFromPt(6);
+    final assessmentColumnWidth = 9904 - _twipsFromCm(1.45) - photoColumnWidth;
     final inspection = entry.prepared.inspection;
     final itemLabel = _formatItemLabel(entry.itemLabel);
     final photoXml = entry.imageBytes != null
@@ -847,27 +871,57 @@ class _ExportScreenState extends State<ExportScreen> {
         _docxCell(
           _docxParagraph(itemLabel, bold: true, sizePt: 9.5),
           widthTwips: 822,
+          paddingTopTwips: _twipsFromPt(4),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(2),
           vAlign: 'top',
         ),
         _docxCell(
           photoXml,
-          widthTwips: 5557,
-          paddingTwips: 60,
+          widthTwips: photoColumnWidth,
+          paddingTwips: _twipsFromPt(3),
           vAlign: 'top',
           align: 'center',
         ),
         _docxCell(
           assessmentXml,
-          widthTwips: 3525,
-          paddingTwips: 40,
+          widthTwips: assessmentColumnWidth,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(4),
           vAlign: 'top',
         ),
-      ], heightTwips: 5050),
+      ], heightTwips: _twipsFromCm(8.8) + _twipsFromPt(6)),
       _docxTableRow([
-        _docxCell(locationXml, widthTwips: 822, paddingTwips: 48, vAlign: 'top'),
-        _docxCell(commentsXml, widthTwips: 5557, paddingTwips: 72, vAlign: 'top'),
-        _docxCell(impactXml, widthTwips: 3525, paddingTwips: 48, vAlign: 'top'),
-      ], heightTwips: 1000),
+        _docxCell(
+          locationXml,
+          widthTwips: 822,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(3),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          commentsXml,
+          widthTwips: photoColumnWidth,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(6),
+          paddingRightTwips: _twipsFromPt(6),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          impactXml,
+          widthTwips: assessmentColumnWidth,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(4),
+          vAlign: 'top',
+        ),
+      ], heightTwips: _twipsFromPt(56)),
     ].join();
   }
 
@@ -998,6 +1052,8 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 
   int _emuFromCm(double cm) => (cm * 360000).round();
+  int _twipsFromCm(double cm) => (cm * 567).round();
+  int _twipsFromPt(double pt) => (pt * 20).round();
 
   String _docxCheckbox(bool selected) => selected ? '☑' : '☐';
 
@@ -1058,6 +1114,7 @@ class _ExportScreenState extends State<ExportScreen> {
     String align = 'left',
     String? rightText,
   }) {
+    final lineTwips = _twipsFromPt(sizePt);
     final runs = <String>[];
     runs.add(_docxRun(text, bold: bold, sizePt: sizePt, color: color));
     if (rightText != null) {
@@ -1065,7 +1122,7 @@ class _ExportScreenState extends State<ExportScreen> {
     }
     return '''
 <w:p>
-  <w:pPr><w:jc w:val="$align"/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>
+  <w:pPr><w:jc w:val="$align"/><w:spacing w:before="0" w:after="0" w:line="$lineTwips" w:lineRule="atLeast"/></w:pPr>
   ${runs.join()}
 </w:p>
 ''';
@@ -1081,7 +1138,7 @@ class _ExportScreenState extends State<ExportScreen> {
 <w:r>
   <w:rPr>
     ${bold ? '<w:b/>' : ''}
-    <w:rFonts w:ascii="Helvetica" w:hAnsi="Helvetica" w:eastAsia="Helvetica"/>
+    <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman"/>
     <w:sz w:val="${(sizePt * 2).round()}"/>
     <w:szCs w:val="${(sizePt * 2).round()}"/>
     <w:color w:val="$color"/>
@@ -1095,20 +1152,28 @@ class _ExportScreenState extends State<ExportScreen> {
     String innerXml, {
     required int widthTwips,
     int paddingTwips = 0,
+    int? paddingTopTwips,
+    int? paddingLeftTwips,
+    int? paddingBottomTwips,
+    int? paddingRightTwips,
     String vAlign = 'top',
     String align = 'left',
     String? bordersXml,
   }) {
+    final topPadding = paddingTopTwips ?? paddingTwips;
+    final leftPadding = paddingLeftTwips ?? paddingTwips;
+    final bottomPadding = paddingBottomTwips ?? paddingTwips;
+    final rightPadding = paddingRightTwips ?? paddingTwips;
     return '''
 <w:tc>
   <w:tcPr>
     <w:tcW w:w="$widthTwips" w:type="dxa"/>
     <w:vAlign w:val="$vAlign"/>
     <w:tcMar>
-      <w:top w:w="$paddingTwips" w:type="dxa"/>
-      <w:left w:w="$paddingTwips" w:type="dxa"/>
-      <w:bottom w:w="$paddingTwips" w:type="dxa"/>
-      <w:right w:w="$paddingTwips" w:type="dxa"/>
+      <w:top w:w="$topPadding" w:type="dxa"/>
+      <w:left w:w="$leftPadding" w:type="dxa"/>
+      <w:bottom w:w="$bottomPadding" w:type="dxa"/>
+      <w:right w:w="$rightPadding" w:type="dxa"/>
     </w:tcMar>
     ${bordersXml ?? _docxDefaultCellBorders()}
   </w:tcPr>
@@ -1292,7 +1357,7 @@ class _ExportScreenState extends State<ExportScreen> {
     <w:name w:val="Normal"/>
     <w:qFormat/>
     <w:rPr>
-      <w:rFonts w:ascii="Helvetica" w:hAnsi="Helvetica" w:eastAsia="Helvetica"/>
+      <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman"/>
       <w:sz w:val="22"/>
       <w:szCs w:val="22"/>
     </w:rPr>
