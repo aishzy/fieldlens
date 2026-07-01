@@ -917,21 +917,21 @@ class _ExportScreenState extends State<ExportScreen> {
       const ['FC1', 'FC2', 'FC3', 'FC4'],
       const ['WC1', 'WC2', 'WC3', 'WC4'],
       selectedCodes,
-      showBottomBorder: true,
+      spacingAfterTwips: 40,
     ));
     buffer.write(_docxAssessmentSection(
       'Bent:',
       const ['B1', 'B2'],
       const ['B3', 'B4'],
       selectedCodes,
-      showBottomBorder: true,
+      spacingAfterTwips: 40,
     ));
     buffer.write(_docxAssessmentSection(
       'Damage:',
       const ['D1', 'D2'],
       const ['D3', 'D4'],
       selectedCodes,
-      showBottomBorder: false,
+      spacingAfterTwips: 0,
     ));
     return buffer.toString();
   }
@@ -941,7 +941,7 @@ class _ExportScreenState extends State<ExportScreen> {
     List<String> leftCodes,
     List<String> rightCodes,
     Set<String> selectedCodes, {
-    required bool showBottomBorder,
+    required int spacingAfterTwips,
   }) {
     final buffer = StringBuffer();
     buffer.write(_docxParagraph(title, bold: true, sizePt: 8.5));
@@ -967,8 +967,8 @@ class _ExportScreenState extends State<ExportScreen> {
       buffer.write('</w:tr>');
     }
     buffer.write('</w:tbl>');
-    if (showBottomBorder) {
-      buffer.write(_docxSpacerParagraph(40));
+    if (spacingAfterTwips > 0) {
+      buffer.write(_docxSpacerParagraph(spacingAfterTwips));
     }
     return buffer.toString();
   }
@@ -1509,7 +1509,7 @@ class _ExportScreenState extends State<ExportScreen> {
             leftCodes: const ['FC1', 'FC2', 'FC3', 'FC4'],
             rightCodes: const ['WC1', 'WC2', 'WC3', 'WC4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: true,
+            bottomSpacing: 2,
           ),
         ),
         pw.Expanded(
@@ -1519,7 +1519,7 @@ class _ExportScreenState extends State<ExportScreen> {
             leftCodes: const ['B1', 'B2'],
             rightCodes: const ['B3', 'B4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: true,
+            bottomSpacing: 2,
           ),
         ),
         pw.Expanded(
@@ -1529,7 +1529,7 @@ class _ExportScreenState extends State<ExportScreen> {
             leftCodes: const ['D1', 'D2'],
             rightCodes: const ['D3', 'D4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: false,
+            bottomSpacing: 0,
           ),
         ),
       ],
@@ -1541,7 +1541,7 @@ class _ExportScreenState extends State<ExportScreen> {
     required List<String> leftCodes,
     required List<String> rightCodes,
     required Set<String> selectedCodes,
-    required bool showBottomBorder,
+    required double bottomSpacing,
   }) {
     return pw.Container(
       padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
@@ -1582,7 +1582,7 @@ class _ExportScreenState extends State<ExportScreen> {
               ],
             ),
           ),
-          if (showBottomBorder) pw.SizedBox(height: 2),
+          if (bottomSpacing > 0) pw.SizedBox(height: bottomSpacing),
         ],
       ),
     );
