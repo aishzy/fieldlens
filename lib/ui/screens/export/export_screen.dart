@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
@@ -102,9 +103,9 @@ class _ExportScreenState extends State<ExportScreen> {
     try {
       final authProvider = context.read<AuthProvider>();
       final inspectionProvider = context.read<InspectionProvider>();
-      final inspections = List<InspectionReportModel>.from(
-       inspectionProvider.inspections,
-      )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      final inspections = _orderedInspectionsForReport(
+        inspectionProvider.inspections,
+      );
       if (inspections.isEmpty) {
         throw Exception('No inspections available');
       }
@@ -128,20 +129,22 @@ class _ExportScreenState extends State<ExportScreen> {
       final pdf = pw.Document();
 
       final photoEntries = _expandPhotoEntries(prepared, user?.name, user?.inspectorId);
-      for (var start = 0; start < photoEntries.length; start += 2) {
-        final pageEntries = photoEntries.skip(start).take(2).toList();
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: pw.EdgeInsets.only(
-              left: _pdfMarginLeftCm * PdfPageFormat.cm,
-              right: _pdfMarginRightCm * PdfPageFormat.cm,
-              top: _pdfMarginTopCm * PdfPageFormat.cm,
-              bottom: _pdfMarginBottomCm * PdfPageFormat.cm,
+      for (final groupedEntries in _groupEntriesByMode(photoEntries)) {
+        for (var start = 0; start < groupedEntries.length; start += 2) {
+          final pageEntries = groupedEntries.skip(start).take(2).toList();
+          pdf.addPage(
+            pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              margin: pw.EdgeInsets.only(
+                left: _pdfMarginLeftCm * PdfPageFormat.cm,
+                right: _pdfMarginRightCm * PdfPageFormat.cm,
+                top: _pdfMarginTopCm * PdfPageFormat.cm,
+                bottom: _pdfMarginBottomCm * PdfPageFormat.cm,
+              ),
+              build: (_) => _buildPdfPage(pageEntries),
             ),
-            build: (_) => _buildPdfPage(pageEntries),
-          ),
-        );
+          );
+        }
       }
 
       final output = await _resolveExportDirectory();
@@ -297,6 +300,39 @@ class _ExportScreenState extends State<ExportScreen> {
     }
 
     return entries;
+  }
+
+  List<InspectionReportModel> _orderedInspectionsForReport(
+    List<InspectionReportModel> inspections,
+  ) {
+    final overallEntries = inspections
+        .where((inspection) => inspection.isOverallMode)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final defectEntries = inspections
+        .where((inspection) => !inspection.isOverallMode)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return [...overallEntries, ...defectEntries];
+  }
+
+  List<List<_PreparedPhotoEntry>> _groupEntriesByMode(
+    List<_PreparedPhotoEntry> entries,
+  ) {
+    final overallEntries = entries
+        .where((entry) => entry.prepared.inspection.isOverallMode)
+        .toList();
+    final defectEntries = entries
+        .where((entry) => !entry.prepared.inspection.isOverallMode)
+        .toList();
+    final groups = <List<_PreparedPhotoEntry>>[];
+    if (overallEntries.isNotEmpty) {
+      groups.add(overallEntries);
+    }
+    if (defectEntries.isNotEmpty) {
+      groups.add(defectEntries);
+    }
+    return groups;
   }
 
   String _buildInspectorLabel(String? inspectorName, String? inspectorId) {
@@ -659,9 +695,9 @@ class _ExportScreenState extends State<ExportScreen> {
     try {
       final authProvider = context.read<AuthProvider>();
       final inspectionProvider = context.read<InspectionProvider>();
-      final inspections = List<InspectionReportModel>.from(
+      final inspections = _orderedInspectionsForReport(
         inspectionProvider.inspections,
-      )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      );
 
       if (inspections.isEmpty) {
         throw Exception('No inspections available');
@@ -712,8 +748,10 @@ class _ExportScreenState extends State<ExportScreen> {
     String? inspectorId,
   ) {
     final pageGroups = <List<_PreparedPhotoEntry>>[];
-    for (var i = 0; i < entries.length; i += 2) {
-      pageGroups.add(entries.skip(i).take(2).toList());
+    for (final groupedEntries in _groupEntriesByMode(entries)) {
+      for (var i = 0; i < groupedEntries.length; i += 2) {
+        pageGroups.add(groupedEntries.skip(i).take(2).toList());
+      }
     }
 
     final mediaAssets = <_DocxMediaAsset>[];
@@ -1768,6 +1806,184 @@ class _ExportScreenState extends State<ExportScreen> {
     );
   }
 
+  Future<void> _seedDemoDataset() async {
+    if (!kDebugMode) return;
+    setState(() => _isExporting = true);
+    try {
+      final authProvider = context.read<AuthProvider>();
+      final inspectionProvider = context.read<InspectionProvider>();
+      final user = authProvider.currentUser;
+      if (user == null || inspectionProvider.currentUserId.isEmpty) {
+        throw Exception('Please login before creating demo data');
+      }
+
+      final previousDemoEntries = inspectionProvider.inspections
+          .where((entry) => entry.refNo.startsWith('DEMO-REPORT-'))
+          .toList();
+      for (final entry in previousDemoEntries) {
+        final deleted = await inspectionProvider.deleteInspection(entry.id);
+        if (!deleted) {
+          throw Exception('Failed to reset existing demo entries');
+        }
+      }
+
+      final overallPhotoPath = await _createDemoImageFile(
+        fileName: 'demo_overall_site.png',
+        title: 'OVERALL SITE VIEW',
+        accentColor: const Color(0xFF1E88E5),
+      );
+      final defectPhotoAPath = await _createDemoImageFile(
+        fileName: 'demo_defect_area_a.png',
+        title: 'DEFECT AREA A',
+        accentColor: const Color(0xFF43A047),
+      );
+      final defectPhotoBPath = await _createDemoImageFile(
+        fileName: 'demo_defect_area_b.png',
+        title: 'DEFECT AREA B',
+        accentColor: const Color(0xFFF4511E),
+      );
+
+      final now = DateTime.now();
+      final overallSaved = await inspectionProvider.saveInspection(
+        itemNumber: '1',
+        photoPaths: [overallPhotoPath],
+        defectType: 'General',
+        defectCode: 'ND0',
+        location: 'Main building frontage',
+        inspectorComments:
+            'Overall site condition captured for baseline inspection.',
+        impactCategory: 'Minor',
+        status: 'No Defect',
+        timestamp: now.subtract(const Duration(minutes: 3)),
+        refNo: 'DEMO-REPORT-OV',
+        section: 'L/M/R',
+        scopeInternal: false,
+        scopeExternal: true,
+        scopeME: false,
+        scopePublicFacilities: false,
+        selectedDefectCodes: const [],
+        inspectionMode: 'overall',
+      );
+
+      final defectSavedA = await inspectionProvider.saveInspection(
+        itemNumber: '2',
+        photoPaths: [defectPhotoAPath],
+        defectType: 'Crack',
+        defectCode: 'FC1',
+        location: 'Ramp entrance',
+        inspectorComments:
+            '1. Hairline crack observed at ramp edge.\n2. Surface debond noted near plaster line.',
+        impactCategory: 'Moderate',
+        status: 'Defect',
+        timestamp: now.subtract(const Duration(minutes: 2)),
+        refNo: 'DEMO-REPORT-A1',
+        section: 'L/M/R',
+        scopeInternal: false,
+        scopeExternal: true,
+        scopeME: false,
+        scopePublicFacilities: false,
+        selectedDefectCodes: const ['FC1', 'WC2', 'B3'],
+        inspectionMode: 'defect',
+      );
+
+      final defectSavedB = await inspectionProvider.saveInspection(
+        itemNumber: '3',
+        photoPaths: [defectPhotoBPath],
+        defectType: 'Damage',
+        defectCode: 'D2',
+        location: 'Walkway curb',
+        inspectorComments:
+            '1. Localized concrete spalling exposing aggregate.\n2. Follow-up patching is recommended.',
+        impactCategory: 'Major',
+        status: 'Defect',
+        timestamp: now.subtract(const Duration(minutes: 1)),
+        refNo: 'DEMO-REPORT-A2',
+        section: 'L/M/R',
+        scopeInternal: false,
+        scopeExternal: true,
+        scopeME: false,
+        scopePublicFacilities: true,
+        selectedDefectCodes: const ['FC2', 'D2', 'WC1'],
+        inspectionMode: 'defect',
+      );
+
+      if (!overallSaved || !defectSavedA || !defectSavedB) {
+        throw Exception(
+          inspectionProvider.error ?? 'Failed to create one or more demo entries',
+        );
+      }
+
+      _showSuccess(
+        'Demo report data created: 1 Overall View + 2 Assessment Type entries',
+        File(overallPhotoPath),
+      );
+    } catch (e) {
+      _showFailure('Error creating demo report data: $e');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<String> _createDemoImageFile({
+    required String fileName,
+    required String title,
+    required Color accentColor,
+  }) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final demoDir = Directory(
+      p.join(appDir.path, 'FieldLens Reports', 'debug_demo'),
+    );
+    if (!await demoDir.exists()) {
+      await demoDir.create(recursive: true);
+    }
+
+    final file = File(p.join(demoDir.path, fileName));
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(
+      recorder,
+      const Rect.fromLTWH(0, 0, 1200, 900),
+    );
+
+    final background = Paint()..color = const Color(0xFFECEFF1);
+    final accent = Paint()..color = accentColor;
+    final border = Paint()
+      ..color = const Color(0xFF263238)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8;
+    canvas.drawRect(const Rect.fromLTWH(0, 0, 1200, 900), background);
+    canvas.drawRect(const Rect.fromLTWH(70, 70, 1060, 560), accent);
+    canvas.drawRect(const Rect.fromLTWH(70, 70, 1060, 560), border);
+    canvas.drawCircle(const Offset(960, 680), 120, accent);
+    canvas.drawLine(
+      const Offset(120, 760),
+      const Offset(1080, 760),
+      border..strokeWidth = 5,
+    );
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: title,
+        style: const TextStyle(
+          color: Color(0xFF102027),
+          fontSize: 64,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    );
+    textPainter.layout(maxWidth: 1040);
+    textPainter.paint(canvas, const Offset(90, 690));
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(1200, 900);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) {
+      throw Exception('Failed to generate demo image bytes');
+    }
+    await file.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
+    return file.path;
+  }
+
   @override
   Widget build(BuildContext context) {
     final inspectionProvider = context.watch<InspectionProvider>();
@@ -1852,6 +2068,18 @@ class _ExportScreenState extends State<ExportScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            if (kDebugMode) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: _isExporting ? null : _seedDemoDataset,
+                  icon: const Icon(Icons.bug_report),
+                  label: const Text('Seed Demo Report Data (Debug Only)'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             const Text(
               'Excel now embeds image thumbnails directly in each row.',
             ),
