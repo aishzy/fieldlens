@@ -493,8 +493,8 @@ void main() async {
 
   final file = File('sample_report_output.pdf');
   await file.writeAsBytes(await pdf.save());
-  print('PDF generated: ${file.absolute.path}');
-  print('File size: ${await file.length()} bytes');
+  stdout.writeln('PDF generated: ${file.absolute.path}');
+  stdout.writeln('File size: ${await file.length()} bytes');
 }
 
 pw.Widget _buildImpactLine(String label, bool selected) {

@@ -946,7 +946,7 @@ class _ExportScreenState extends State<ExportScreen> {
     final buffer = StringBuffer();
     buffer.write(_docxParagraph(title, bold: true, sizePt: 8.5));
     buffer.write('<w:tbl>');
-    buffer.write(_docxTblPr(borderTwips: 6));
+    buffer.write(_docxAssessmentTblPr());
     buffer.write('<w:tblGrid><w:gridCol w:w="1700"/><w:gridCol w:w="1700"/></w:tblGrid>');
     for (var i = 0; i < leftCodes.length; i++) {
       buffer.write('<w:tr>');
@@ -955,28 +955,46 @@ class _ExportScreenState extends State<ExportScreen> {
         widthTwips: 1700,
         paddingTwips: 20,
         vAlign: 'top',
+        bordersXml: _docxAssessmentCellBorders(rightBorder: true),
       ));
       buffer.write(_docxCell(
         _docxParagraph('${_docxCheckbox(selectedCodes.contains(rightCodes[i]))} ${rightCodes[i]}', sizePt: 8.2),
         widthTwips: 1700,
         paddingTwips: 20,
         vAlign: 'top',
+        bordersXml: _docxAssessmentCellBorders(),
       ));
       buffer.write('</w:tr>');
     }
     buffer.write('</w:tbl>');
+    if (showBottomBorder) {
+      buffer.write(_docxSpacerParagraph(40));
+    }
     return buffer.toString();
   }
 
   String _docxTwoColumnLine(String label, bool selected) {
-    return [
-      _docxParagraph(
-        label,
-        bold: true,
-        sizePt: 8.3,
-        rightText: _docxCheckbox(selected),
-      ),
-    ].join();
+    return '''
+<w:tbl>
+  ${_docxAssessmentTblPr()}
+  <w:tblGrid><w:gridCol w:w="2500"/><w:gridCol w:w="380"/></w:tblGrid>
+  <w:tr>
+    ${_docxCell(
+      _docxParagraph(label, bold: true, sizePt: 8.3),
+      widthTwips: 2500,
+      paddingTwips: 0,
+      vAlign: 'top',
+      bordersXml: _docxNoBorderCellBorders(),
+    )}
+    ${_docxCell(
+      _docxParagraph(_docxCheckbox(selected), bold: true, sizePt: 8.3, align: 'center'),
+      widthTwips: 380,
+      paddingTwips: 0,
+      vAlign: 'top',
+      bordersXml: _docxNoBorderCellBorders(),
+    )}
+  </w:tr>
+</w:tbl>''';
   }
 
   int _emuFromCm(double cm) => (cm * 360000).round();
@@ -1063,7 +1081,7 @@ class _ExportScreenState extends State<ExportScreen> {
 <w:r>
   <w:rPr>
     ${bold ? '<w:b/>' : ''}
-    <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial"/>
+    <w:rFonts w:ascii="Helvetica" w:hAnsi="Helvetica" w:eastAsia="Helvetica"/>
     <w:sz w:val="${(sizePt * 2).round()}"/>
     <w:szCs w:val="${(sizePt * 2).round()}"/>
     <w:color w:val="$color"/>
@@ -1079,6 +1097,7 @@ class _ExportScreenState extends State<ExportScreen> {
     int paddingTwips = 0,
     String vAlign = 'top',
     String align = 'left',
+    String? bordersXml,
   }) {
     return '''
 <w:tc>
@@ -1091,16 +1110,64 @@ class _ExportScreenState extends State<ExportScreen> {
       <w:bottom w:w="$paddingTwips" w:type="dxa"/>
       <w:right w:w="$paddingTwips" w:type="dxa"/>
     </w:tcMar>
-    <w:tcBorders>
-      <w:top w:val="single" w:sz="6" w:color="000000"/>
-      <w:left w:val="single" w:sz="6" w:color="000000"/>
-      <w:bottom w:val="single" w:sz="6" w:color="000000"/>
-      <w:right w:val="single" w:sz="6" w:color="000000"/>
-    </w:tcBorders>
+    ${bordersXml ?? _docxDefaultCellBorders()}
   </w:tcPr>
   ${innerXml.isEmpty ? '<w:p/>' : innerXml}
 </w:tc>
 ''';
+  }
+
+  String _docxDefaultCellBorders() {
+    return '''
+<w:tcBorders>
+  <w:top w:val="single" w:sz="6" w:color="000000"/>
+  <w:left w:val="single" w:sz="6" w:color="000000"/>
+  <w:bottom w:val="single" w:sz="6" w:color="000000"/>
+  <w:right w:val="single" w:sz="6" w:color="000000"/>
+</w:tcBorders>''';
+  }
+
+  String _docxAssessmentCellBorders({bool rightBorder = false}) {
+    return '''
+<w:tcBorders>
+  <w:top w:val="nil"/>
+  <w:left w:val="nil"/>
+  <w:bottom w:val="nil"/>
+  <w:right ${rightBorder ? 'w:val="single" w:sz="6" w:color="000000"' : 'w:val="nil"'} />
+</w:tcBorders>''';
+  }
+
+  String _docxNoBorderCellBorders() {
+    return '''
+<w:tcBorders>
+  <w:top w:val="nil"/>
+  <w:left w:val="nil"/>
+  <w:bottom w:val="nil"/>
+  <w:right w:val="nil"/>
+</w:tcBorders>''';
+  }
+
+  String _docxAssessmentTblPr() {
+    return '''
+<w:tblW w:w="0" w:type="auto"/>
+<w:tblBorders>
+  <w:top w:val="nil"/>
+  <w:left w:val="nil"/>
+  <w:bottom w:val="nil"/>
+  <w:right w:val="nil"/>
+  <w:insideH w:val="nil"/>
+  <w:insideV w:val="nil"/>
+</w:tblBorders>
+<w:tblCellMar>
+  <w:top w:w="0" w:type="dxa"/>
+  <w:left w:w="0" w:type="dxa"/>
+  <w:bottom w:w="0" w:type="dxa"/>
+  <w:right w:w="0" w:type="dxa"/>
+</w:tblCellMar>''';
+  }
+
+  String _docxSpacerParagraph(int afterTwips) {
+    return '<w:p><w:pPr><w:spacing w:after="$afterTwips"/></w:pPr></w:p>';
   }
 
   String _docxTableRow(List<String> cells, {int? heightTwips}) {
@@ -1225,7 +1292,7 @@ class _ExportScreenState extends State<ExportScreen> {
     <w:name w:val="Normal"/>
     <w:qFormat/>
     <w:rPr>
-      <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial"/>
+      <w:rFonts w:ascii="Helvetica" w:hAnsi="Helvetica" w:eastAsia="Helvetica"/>
       <w:sz w:val="22"/>
       <w:szCs w:val="22"/>
     </w:rPr>
@@ -1476,14 +1543,7 @@ class _ExportScreenState extends State<ExportScreen> {
     required Set<String> selectedCodes,
     required bool showBottomBorder,
   }) {
-    final border = showBottomBorder
-        ? const pw.Border(
-            bottom: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
-          )
-        : null;
-
     return pw.Container(
-      decoration: border == null ? null : pw.BoxDecoration(border: border),
       padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1522,6 +1582,7 @@ class _ExportScreenState extends State<ExportScreen> {
               ],
             ),
           ),
+          if (showBottomBorder) pw.SizedBox(height: 2),
         ],
       ),
     );
