@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
@@ -101,9 +104,9 @@ class _ExportScreenState extends State<ExportScreen> {
     try {
       final authProvider = context.read<AuthProvider>();
       final inspectionProvider = context.read<InspectionProvider>();
-      final inspections = List<InspectionReportModel>.from(
-       inspectionProvider.inspections,
-      )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      final inspections = _orderedInspectionsForReport(
+        inspectionProvider.inspections,
+      );
       if (inspections.isEmpty) {
         throw Exception('No inspections available');
       }
@@ -127,20 +130,22 @@ class _ExportScreenState extends State<ExportScreen> {
       final pdf = pw.Document();
 
       final photoEntries = _expandPhotoEntries(prepared, user?.name, user?.inspectorId);
-      for (var start = 0; start < photoEntries.length; start += 2) {
-        final pageEntries = photoEntries.skip(start).take(2).toList();
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: pw.EdgeInsets.only(
-              left: _pdfMarginLeftCm * PdfPageFormat.cm,
-              right: _pdfMarginRightCm * PdfPageFormat.cm,
-              top: _pdfMarginTopCm * PdfPageFormat.cm,
-              bottom: _pdfMarginBottomCm * PdfPageFormat.cm,
+      for (final groupedEntries in _groupEntriesByMode(photoEntries)) {
+        for (var start = 0; start < groupedEntries.length; start += 2) {
+          final pageEntries = groupedEntries.skip(start).take(2).toList();
+          pdf.addPage(
+            pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              margin: pw.EdgeInsets.only(
+                left: _pdfMarginLeftCm * PdfPageFormat.cm,
+                right: _pdfMarginRightCm * PdfPageFormat.cm,
+                top: _pdfMarginTopCm * PdfPageFormat.cm,
+                bottom: _pdfMarginBottomCm * PdfPageFormat.cm,
+              ),
+              build: (_) => _buildPdfPage(pageEntries),
             ),
-            build: (_) => _buildPdfPage(pageEntries),
-          ),
-        );
+          );
+        }
       }
 
       final output = await _resolveExportDirectory();
@@ -296,6 +301,39 @@ class _ExportScreenState extends State<ExportScreen> {
     }
 
     return entries;
+  }
+
+  List<InspectionReportModel> _orderedInspectionsForReport(
+    List<InspectionReportModel> inspections,
+  ) {
+    final overallEntries = inspections
+        .where((inspection) => inspection.isOverallMode)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final defectEntries = inspections
+        .where((inspection) => !inspection.isOverallMode)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return [...overallEntries, ...defectEntries];
+  }
+
+  List<List<_PreparedPhotoEntry>> _groupEntriesByMode(
+    List<_PreparedPhotoEntry> entries,
+  ) {
+    final overallEntries = entries
+        .where((entry) => entry.prepared.inspection.isOverallMode)
+        .toList();
+    final defectEntries = entries
+        .where((entry) => !entry.prepared.inspection.isOverallMode)
+        .toList();
+    final groups = <List<_PreparedPhotoEntry>>[];
+    if (overallEntries.isNotEmpty) {
+      groups.add(overallEntries);
+    }
+    if (defectEntries.isNotEmpty) {
+      groups.add(defectEntries);
+    }
+    return groups;
   }
 
   String _buildInspectorLabel(String? inspectorName, String? inspectorId) {
@@ -653,6 +691,773 @@ class _ExportScreenState extends State<ExportScreen> {
     }
   }
 
+  Future<void> _exportToDocx() async {
+    setState(() => _isExporting = true);
+    try {
+      final authProvider = context.read<AuthProvider>();
+      final inspectionProvider = context.read<InspectionProvider>();
+      final inspections = _orderedInspectionsForReport(
+        inspectionProvider.inspections,
+      );
+
+      if (inspections.isEmpty) {
+        throw Exception('No inspections available');
+      }
+
+      final user = authProvider.currentUser;
+      final prepared = await Future.wait(
+        inspections.map((entry) async {
+          final List<Uint8List> allBytes = [];
+          for (final path in entry.photoPaths) {
+            if (path.isNotEmpty) {
+              final file = File(path);
+              if (await file.exists()) {
+                allBytes.add(await file.readAsBytes());
+              }
+            }
+          }
+          return _PreparedInspection(entry, allBytes);
+        }),
+      );
+
+      final photoEntries = _expandPhotoEntries(
+        prepared,
+        user?.name,
+        user?.inspectorId,
+      );
+      final bytes = _buildDocxBytes(photoEntries, user?.name, user?.inspectorId);
+
+      final output = await _resolveExportDirectory();
+      final file = File(
+        p.join(
+          output.path,
+          'FieldLens_Report_all_inspections_${DateTime.now().millisecondsSinceEpoch}.docx',
+        ),
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      _showSuccess('Word saved in ${_friendlyFolderLabel()}', file);
+    } catch (e) {
+      _showFailure('Error exporting Word document: $e');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Uint8List _buildDocxBytes(
+    List<_PreparedPhotoEntry> entries,
+    String? inspectorName,
+    String? inspectorId,
+  ) {
+    final pageGroups = <List<_PreparedPhotoEntry>>[];
+    for (final groupedEntries in _groupEntriesByMode(entries)) {
+      for (var i = 0; i < groupedEntries.length; i += 2) {
+        pageGroups.add(groupedEntries.skip(i).take(2).toList());
+      }
+    }
+
+    final mediaAssets = <_DocxMediaAsset>[];
+    final body = StringBuffer();
+    for (var i = 0; i < pageGroups.length; i++) {
+      final pageEntries = pageGroups[i];
+      final isOverallPage = pageEntries.first.prepared.inspection.isOverallMode;
+      body.write(_buildDocxPageXml(pageEntries, isOverallPage, mediaAssets));
+      if (i != pageGroups.length - 1) {
+        body.write(_docxPageBreak());
+      }
+    }
+
+    final documentXml = _buildDocxDocumentXml(body.toString());
+    final relsXml = _buildDocxDocumentRels(mediaAssets);
+    final stylesXml = _buildDocxStylesXml();
+    final contentTypesXml = _buildDocxContentTypes(mediaAssets);
+    final appXml = _buildDocxAppXml();
+    final coreXml = _buildDocxCoreXml();
+
+    final archive = Archive()
+      ..addFile(ArchiveFile.string('[Content_Types].xml', contentTypesXml))
+      ..addFile(ArchiveFile.string('_rels/.rels', _buildDocxRootRelsXml()))
+      ..addFile(ArchiveFile.string('docProps/app.xml', appXml))
+      ..addFile(ArchiveFile.string('docProps/core.xml', coreXml))
+      ..addFile(ArchiveFile.string('word/document.xml', documentXml))
+      ..addFile(ArchiveFile.string('word/_rels/document.xml.rels', relsXml))
+      ..addFile(ArchiveFile.string('word/styles.xml', stylesXml));
+
+    for (final asset in mediaAssets) {
+      archive.addFile(ArchiveFile(asset.path, asset.bytes.length, asset.bytes));
+    }
+
+    final encoded = ZipEncoder().encode(archive);
+    if (encoded == null) {
+      throw Exception('Failed to build DOCX archive');
+    }
+    return Uint8List.fromList(encoded);
+  }
+
+  String _buildDocxPageXml(
+    List<_PreparedPhotoEntry> pageEntries,
+    bool isOverallPage,
+    List<_DocxMediaAsset> mediaAssets,
+  ) {
+    final defectItemWidth = _twipsFromCm(1.45);
+    final defectPhotoWidth = _twipsFromCm(9.8) + _twipsFromPt(6);
+    final defectColumnWidths = [defectItemWidth, defectPhotoWidth, 9904 - defectItemWidth - defectPhotoWidth];
+    final rowBuilder = StringBuffer();
+    rowBuilder.write(_docxTableStart(
+      isOverallPage ? [822, 9082] : defectColumnWidths,
+      header: true,
+    ));
+    if (isOverallPage) {
+      rowBuilder.write(_docxHeaderRow(['ITEM', 'PHOTO'], [822, 9082]));
+    } else {
+      rowBuilder.write(_docxHeaderRow(['ITEM', 'PHOTO', 'ASSESSMENT TYPES'], defectColumnWidths));
+    }
+
+    for (final entry in pageEntries) {
+      if (isOverallPage) {
+        rowBuilder.write(_buildDocxOverallEntryRows(entry, mediaAssets));
+      } else {
+        rowBuilder.write(_buildDocxDefectEntryRows(entry, mediaAssets));
+      }
+    }
+
+    rowBuilder.write(_docxTableEnd());
+    return rowBuilder.toString();
+  }
+
+  String _buildDocxOverallEntryRows(
+    _PreparedPhotoEntry entry,
+    List<_DocxMediaAsset> mediaAssets,
+  ) {
+    final inspection = entry.prepared.inspection;
+    final itemLabel = _formatItemLabel(entry.itemLabel);
+    final photoXml = entry.imageBytes != null
+        ? _docxImageXml(
+            entry.imageBytes!,
+            mediaAssets,
+            _emuFromCm(9.8),
+            _emuFromCm(8.8),
+          )
+        : _docxParagraph('No Image', sizePt: 7.5, color: '808080', align: 'center');
+
+    final commentXml = _docxCommentsCell(entry, inspection);
+    final locationXml = _docxLocationCell(inspection);
+
+    return [
+      _docxTableRow([
+        _docxCell(
+          _docxParagraph(itemLabel, bold: true, sizePt: 9.5),
+          widthTwips: 822,
+          paddingTopTwips: _twipsFromPt(4),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(2),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          photoXml,
+          widthTwips: 9082,
+          paddingTwips: _twipsFromPt(3),
+          vAlign: 'top',
+          align: 'center',
+        ),
+      ], heightTwips: _twipsFromCm(8.8) + _twipsFromPt(6)),
+      _docxTableRow([
+        _docxCell(
+          locationXml,
+          widthTwips: 2971,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(3),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          commentXml,
+          widthTwips: 6933,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(6),
+          paddingRightTwips: _twipsFromPt(6),
+          vAlign: 'top',
+        ),
+      ], heightTwips: _twipsFromPt(56)),
+    ].join();
+  }
+
+  String _buildDocxDefectEntryRows(
+    _PreparedPhotoEntry entry,
+    List<_DocxMediaAsset> mediaAssets,
+  ) {
+    final photoColumnWidth = _twipsFromCm(9.8) + _twipsFromPt(6);
+    final assessmentColumnWidth = 9904 - _twipsFromCm(1.45) - photoColumnWidth;
+    final inspection = entry.prepared.inspection;
+    final itemLabel = _formatItemLabel(entry.itemLabel);
+    final photoXml = entry.imageBytes != null
+        ? _docxImageXml(
+            entry.imageBytes!,
+            mediaAssets,
+            _emuFromCm(9.8),
+            _emuFromCm(8.8),
+          )
+        : _docxParagraph('No Image', sizePt: 7.5, color: '808080', align: 'center');
+
+    final assessmentXml = _docxAssessmentCell(inspection.selectedDefectCodes.toSet());
+    final locationXml = _docxLocationCell(inspection);
+    final commentsXml = _docxCommentsCell(entry, inspection);
+    final impactXml = _docxImpactCell(inspection);
+
+    return [
+      _docxTableRow([
+        _docxCell(
+          _docxParagraph(itemLabel, bold: true, sizePt: 9.5),
+          widthTwips: 822,
+          paddingTopTwips: _twipsFromPt(4),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(2),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          photoXml,
+          widthTwips: photoColumnWidth,
+          paddingTwips: _twipsFromPt(3),
+          vAlign: 'top',
+          align: 'center',
+        ),
+        _docxCell(
+          assessmentXml,
+          widthTwips: assessmentColumnWidth,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(4),
+          vAlign: 'top',
+        ),
+      ], heightTwips: _twipsFromCm(8.8) + _twipsFromPt(6)),
+      _docxTableRow([
+        _docxCell(
+          locationXml,
+          widthTwips: 822,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(3),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          commentsXml,
+          widthTwips: photoColumnWidth,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(6),
+          paddingRightTwips: _twipsFromPt(6),
+          vAlign: 'top',
+        ),
+        _docxCell(
+          impactXml,
+          widthTwips: assessmentColumnWidth,
+          paddingTopTwips: _twipsFromPt(2),
+          paddingBottomTwips: _twipsFromPt(2),
+          paddingLeftTwips: _twipsFromPt(4),
+          paddingRightTwips: _twipsFromPt(4),
+          vAlign: 'top',
+        ),
+      ], heightTwips: _twipsFromPt(56)),
+    ].join();
+  }
+
+  String _docxCommentsCell(
+    _PreparedPhotoEntry entry,
+    InspectionReportModel inspection,
+  ) {
+    final lines = _formatComments(inspection.inspectorComments);
+    final buffer = StringBuffer();
+    buffer.write(_docxParagraph("Inspector's comments:", bold: true, sizePt: 8.5));
+    for (final line in lines) {
+      buffer.write(_docxParagraph(line, sizePt: 7.7));
+    }
+    if (entry.inspectorLabel.isNotEmpty) {
+      buffer.write(_docxParagraph(
+        'Inspector: ${entry.inspectorLabel}',
+        sizePt: 7.1,
+      ));
+    }
+    return buffer.toString();
+  }
+
+  String _docxLocationCell(InspectionReportModel inspection) {
+    return [
+      _docxParagraph('Location:', bold: true, sizePt: 8.5),
+      _docxParagraph(_resolvedPdfLocation(inspection), sizePt: 7.8),
+    ].join();
+  }
+
+  String _docxImpactCell(InspectionReportModel inspection) {
+    final buffer = StringBuffer();
+    buffer.write(_docxParagraph('Impact Category:', bold: true, sizePt: 8.5));
+    for (final item in [
+      ('Minor:', inspection.impactCategory == 'Minor'),
+      ('Moderate:', inspection.impactCategory == 'Moderate'),
+      ('Major:', inspection.impactCategory == 'Major'),
+    ]) {
+      buffer.write(_docxTwoColumnLine(item.$1, item.$2));
+    }
+    return buffer.toString();
+  }
+
+  String _docxAssessmentCell(Set<String> selectedCodes) {
+    final buffer = StringBuffer();
+    buffer.write(_docxAssessmentSection(
+      'Crack:',
+      const ['FC1', 'FC2', 'FC3', 'FC4'],
+      const ['WC1', 'WC2', 'WC3', 'WC4'],
+      selectedCodes,
+      spacingAfterTwips: 40,
+    ));
+    buffer.write(_docxAssessmentSection(
+      'Bent:',
+      const ['B1', 'B2'],
+      const ['B3', 'B4'],
+      selectedCodes,
+      spacingAfterTwips: 40,
+    ));
+    buffer.write(_docxAssessmentSection(
+      'Damage:',
+      const ['D1', 'D2'],
+      const ['D3', 'D4'],
+      selectedCodes,
+      spacingAfterTwips: 0,
+    ));
+    return buffer.toString();
+  }
+
+  String _docxAssessmentSection(
+    String title,
+    List<String> leftCodes,
+    List<String> rightCodes,
+    Set<String> selectedCodes, {
+    required int spacingAfterTwips,
+  }) {
+    final buffer = StringBuffer();
+    buffer.write(_docxParagraph(title, bold: true, sizePt: 8.5));
+    buffer.write('<w:tbl>');
+    buffer.write(_docxAssessmentTblPr());
+    buffer.write('<w:tblGrid><w:gridCol w:w="1700"/><w:gridCol w:w="1700"/></w:tblGrid>');
+    for (var i = 0; i < leftCodes.length; i++) {
+      buffer.write('<w:tr>');
+      buffer.write(_docxCell(
+        _docxParagraph('${_docxCheckbox(selectedCodes.contains(leftCodes[i]))} ${leftCodes[i]}', sizePt: 8.2),
+        widthTwips: 1700,
+        paddingTwips: 20,
+        vAlign: 'top',
+        bordersXml: _docxAssessmentCellBorders(rightBorder: true),
+      ));
+      buffer.write(_docxCell(
+        _docxParagraph('${_docxCheckbox(selectedCodes.contains(rightCodes[i]))} ${rightCodes[i]}', sizePt: 8.2),
+        widthTwips: 1700,
+        paddingTwips: 20,
+        vAlign: 'top',
+        bordersXml: _docxAssessmentCellBorders(),
+      ));
+      buffer.write('</w:tr>');
+    }
+    buffer.write('</w:tbl>');
+    if (spacingAfterTwips > 0) {
+      buffer.write(_docxSpacerParagraph(spacingAfterTwips));
+    }
+    return buffer.toString();
+  }
+
+  String _docxTwoColumnLine(String label, bool selected) {
+    return '''
+<w:tbl>
+  ${_docxAssessmentTblPr()}
+  <w:tblGrid><w:gridCol w:w="2500"/><w:gridCol w:w="380"/></w:tblGrid>
+  <w:tr>
+    ${_docxCell(
+      _docxParagraph(label, bold: true, sizePt: 8.3),
+      widthTwips: 2500,
+      paddingTwips: 0,
+      vAlign: 'top',
+      bordersXml: _docxNoBorderCellBorders(),
+    )}
+    ${_docxCell(
+      _docxParagraph(_docxCheckbox(selected), bold: true, sizePt: 8.3, align: 'center'),
+      widthTwips: 380,
+      paddingTwips: 0,
+      vAlign: 'top',
+      bordersXml: _docxNoBorderCellBorders(),
+    )}
+  </w:tr>
+</w:tbl>''';
+  }
+
+  int _emuFromCm(double cm) => (cm * 360000).round();
+  int _twipsFromCm(double cm) => (cm * 567).round();
+  int _twipsFromPt(double pt) => (pt * 20).round();
+
+  String _docxCheckbox(bool selected) => selected ? '☑' : '☐';
+
+  String _docxImageXml(
+    Uint8List bytes,
+    List<_DocxMediaAsset> mediaAssets,
+    int widthEmu,
+    int heightEmu,
+  ) {
+    final asset = _DocxMediaAsset(
+      path: 'word/media/image${mediaAssets.length + 1}.jpg',
+      bytes: bytes,
+      contentType: 'image/jpeg',
+      relationshipId: 'rIdImage${mediaAssets.length + 1}',
+    );
+    mediaAssets.add(asset);
+    return '''
+<w:p>
+  <w:pPr><w:jc w:val="center"/></w:pPr>
+  <w:r>
+    <w:drawing>
+      <wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+        <wp:extent cx="$widthEmu" cy="$heightEmu"/>
+        <wp:docPr id="${mediaAssets.length}" name="Image ${mediaAssets.length}"/>
+        <wp:cNvGraphicFramePr>
+          <a:graphicFrameLocks noChangeAspect="1" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>
+        </wp:cNvGraphicFramePr>
+        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+              <pic:nvPicPr>
+                <pic:cNvPr id="${mediaAssets.length}" name="Image ${mediaAssets.length}"/>
+                <pic:cNvPicPr/>
+              </pic:nvPicPr>
+              <pic:blipFill>
+                <a:blip r:embed="${asset.relationshipId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
+                <a:stretch><a:fillRect/></a:stretch>
+              </pic:blipFill>
+              <pic:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="$widthEmu" cy="$heightEmu"/></a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+              </pic:spPr>
+            </pic:pic>
+          </a:graphicData>
+        </a:graphic>
+      </wp:inline>
+    </w:drawing>
+  </w:r>
+</w:p>
+''';
+  }
+
+  String _docxParagraph(
+    String text, {
+    bool bold = false,
+    double sizePt = 8.0,
+    String color = '000000',
+    String align = 'left',
+    String? rightText,
+  }) {
+    final lineTwips = _twipsFromPt(sizePt);
+    final runs = <String>[];
+    runs.add(_docxRun(text, bold: bold, sizePt: sizePt, color: color));
+    if (rightText != null) {
+      runs.add(_docxRun(rightText, bold: true, sizePt: sizePt, color: color));
+    }
+    return '''
+<w:p>
+  <w:pPr><w:jc w:val="$align"/><w:spacing w:before="0" w:after="0" w:line="$lineTwips" w:lineRule="atLeast"/></w:pPr>
+  ${runs.join()}
+</w:p>
+''';
+  }
+
+  String _docxRun(
+    String text, {
+    bool bold = false,
+    double sizePt = 8.0,
+    String color = '000000',
+  }) {
+    return '''
+<w:r>
+  <w:rPr>
+    ${bold ? '<w:b/>' : ''}
+    <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman"/>
+    <w:sz w:val="${(sizePt * 2).round()}"/>
+    <w:szCs w:val="${(sizePt * 2).round()}"/>
+    <w:color w:val="$color"/>
+  </w:rPr>
+  <w:t>${_xmlEscape(text)}</w:t>
+</w:r>
+''';
+  }
+
+  String _docxCell(
+    String innerXml, {
+    required int widthTwips,
+    int paddingTwips = 0,
+    int? paddingTopTwips,
+    int? paddingLeftTwips,
+    int? paddingBottomTwips,
+    int? paddingRightTwips,
+    String vAlign = 'top',
+    String align = 'left',
+    String? bordersXml,
+  }) {
+    final topPadding = paddingTopTwips ?? paddingTwips;
+    final leftPadding = paddingLeftTwips ?? paddingTwips;
+    final bottomPadding = paddingBottomTwips ?? paddingTwips;
+    final rightPadding = paddingRightTwips ?? paddingTwips;
+    return '''
+<w:tc>
+  <w:tcPr>
+    <w:tcW w:w="$widthTwips" w:type="dxa"/>
+    <w:vAlign w:val="$vAlign"/>
+    <w:tcMar>
+      <w:top w:w="$topPadding" w:type="dxa"/>
+      <w:left w:w="$leftPadding" w:type="dxa"/>
+      <w:bottom w:w="$bottomPadding" w:type="dxa"/>
+      <w:right w:w="$rightPadding" w:type="dxa"/>
+    </w:tcMar>
+    ${bordersXml ?? _docxDefaultCellBorders()}
+  </w:tcPr>
+  ${innerXml.isEmpty ? '<w:p/>' : innerXml}
+</w:tc>
+''';
+  }
+
+  String _docxDefaultCellBorders() {
+    return '''
+<w:tcBorders>
+  <w:top w:val="single" w:sz="6" w:color="000000"/>
+  <w:left w:val="single" w:sz="6" w:color="000000"/>
+  <w:bottom w:val="single" w:sz="6" w:color="000000"/>
+  <w:right w:val="single" w:sz="6" w:color="000000"/>
+</w:tcBorders>''';
+  }
+
+  String _docxAssessmentCellBorders({bool rightBorder = false}) {
+    return '''
+<w:tcBorders>
+  <w:top w:val="nil"/>
+  <w:left w:val="nil"/>
+  <w:bottom w:val="nil"/>
+  <w:right ${rightBorder ? 'w:val="single" w:sz="6" w:color="000000"' : 'w:val="nil"'} />
+</w:tcBorders>''';
+  }
+
+  String _docxNoBorderCellBorders() {
+    return '''
+<w:tcBorders>
+  <w:top w:val="nil"/>
+  <w:left w:val="nil"/>
+  <w:bottom w:val="nil"/>
+  <w:right w:val="nil"/>
+</w:tcBorders>''';
+  }
+
+  String _docxAssessmentTblPr() {
+    return '''
+<w:tblW w:w="0" w:type="auto"/>
+<w:tblBorders>
+  <w:top w:val="nil"/>
+  <w:left w:val="nil"/>
+  <w:bottom w:val="nil"/>
+  <w:right w:val="nil"/>
+  <w:insideH w:val="nil"/>
+  <w:insideV w:val="nil"/>
+</w:tblBorders>
+<w:tblCellMar>
+  <w:top w:w="0" w:type="dxa"/>
+  <w:left w:w="0" w:type="dxa"/>
+  <w:bottom w:w="0" w:type="dxa"/>
+  <w:right w:w="0" w:type="dxa"/>
+</w:tblCellMar>''';
+  }
+
+  String _docxSpacerParagraph(int afterTwips) {
+    return '<w:p><w:pPr><w:spacing w:after="$afterTwips"/></w:pPr></w:p>';
+  }
+
+  String _docxTableRow(List<String> cells, {int? heightTwips}) {
+    final buffer = StringBuffer('<w:tr>');
+    if (heightTwips != null) {
+      buffer.write('<w:trPr><w:trHeight w:val="$heightTwips" w:hRule="atLeast"/></w:trPr>');
+    }
+    for (final cell in cells) {
+      buffer.write(cell);
+    }
+    buffer.write('</w:tr>');
+    return buffer.toString();
+  }
+
+  String _docxHeaderRow(List<String> titles, List<int> widths) {
+    final cells = <String>[];
+    for (var i = 0; i < titles.length; i++) {
+      cells.add(_docxCell(
+        _docxParagraph(titles[i], bold: true, sizePt: 8.5, align: 'center'),
+        widthTwips: widths[i],
+        paddingTwips: 0,
+        vAlign: 'center',
+        align: 'center',
+      ));
+    }
+    return _docxTableRow(cells, heightTwips: 240);
+  }
+
+  String _docxTableStart(List<int> widths, {bool header = false}) {
+    final grid = widths.map((w) => '<w:gridCol w:w="$w"/>').join();
+    return '<w:tbl><w:tblPr>${_docxTblPr(borderTwips: 6)}</w:tblPr><w:tblGrid>$grid</w:tblGrid>';
+  }
+
+  String _docxTableEnd() => '</w:tbl>';
+
+  String _docxTblPr({required int borderTwips}) {
+    return '''
+<w:tblW w:w="0" w:type="auto"/>
+<w:tblBorders>
+  <w:top w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:left w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:bottom w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:right w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:insideH w:val="single" w:sz="$borderTwips" w:color="000000"/>
+  <w:insideV w:val="single" w:sz="$borderTwips" w:color="000000"/>
+</w:tblBorders>
+<w:tblCellMar>
+  <w:top w:w="0" w:type="dxa"/>
+  <w:left w:w="0" w:type="dxa"/>
+  <w:bottom w:w="0" w:type="dxa"/>
+  <w:right w:w="0" w:type="dxa"/>
+</w:tblCellMar>
+''';
+  }
+
+  String _docxPageBreak() => '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+  String _buildDocxDocumentXml(String bodyXml) {
+    final pageWidth = 11906;
+    final pageHeight = 16838;
+    final marginLeft = (1.80 * 567).round();
+    final marginRight = (1.73 * 567).round();
+    final marginTop = (2.12 * 567).round();
+    final marginBottom = (2.47 * 567).round();
+
+    return '''
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+ xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+ xmlns:v="urn:schemas-microsoft-com:vml"
+ xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+ xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+ xmlns:w10="urn:schemas-microsoft-com:office:word"
+ xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+ xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+ xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+ xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+ xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+ mc:Ignorable="w14 wp14">
+  <w:body>
+    $bodyXml
+    <w:sectPr>
+      <w:pgSz w:w="$pageWidth" w:h="$pageHeight"/>
+      <w:pgMar w:top="$marginTop" w:right="$marginRight" w:bottom="$marginBottom" w:left="$marginLeft" w:header="0" w:footer="0" w:gutter="0"/>
+      <w:cols w:space="720"/>
+      <w:docGrid w:linePitch="360"/>
+    </w:sectPr>
+  </w:body>
+</w:document>
+''';
+  }
+
+  String _buildDocxDocumentRels(List<_DocxMediaAsset> mediaAssets) {
+    final buffer = StringBuffer('''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">''');
+    for (var i = 0; i < mediaAssets.length; i++) {
+      final asset = mediaAssets[i];
+      buffer.write('''
+  <Relationship Id="${asset.relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${asset.path.replaceFirst('word/', '')}"/>''');
+    }
+    buffer.write('</Relationships>');
+    return buffer.toString();
+  }
+
+  String _buildDocxRootRelsXml() {
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>''';
+  }
+
+  String _buildDocxStylesXml() {
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+    <w:qFormat/>
+    <w:rPr>
+      <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman"/>
+      <w:sz w:val="22"/>
+      <w:szCs w:val="22"/>
+    </w:rPr>
+  </w:style>
+</w:styles>''';
+  }
+
+  String _buildDocxContentTypes(List<_DocxMediaAsset> mediaAssets) {
+    final defaults = <String, String>{
+      'rels': 'application/vnd.openxmlformats-package.relationships+xml',
+      'xml': 'application/xml',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+    };
+    final seenExt = <String>{};
+    final buffer = StringBuffer('''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="${defaults['rels']}"/>
+  <Default Extension="xml" ContentType="${defaults['xml']}"/>''');
+    for (final asset in mediaAssets) {
+      final ext = p.extension(asset.path).replaceFirst('.', '').toLowerCase();
+      if (seenExt.add(ext)) {
+        buffer.write('\n  <Default Extension="$ext" ContentType="${defaults[ext] ?? 'image/jpeg'}"/>');
+      }
+    }
+    buffer.write('''
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>''');
+    return buffer.toString();
+  }
+
+  String _buildDocxAppXml() {
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+ xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Microsoft Word</Application>
+</Properties>''';
+  }
+
+  String _buildDocxCoreXml() {
+    final now = DateTime.now().toUtc().toIso8601String();
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:dcterms="http://purl.org/dc/terms/"
+ xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>FieldLens Report</dc:title>
+  <dc:creator>FieldLens</dc:creator>
+  <cp:lastModifiedBy>FieldLens</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
+</cp:coreProperties>''';
+  }
+
+  String _xmlEscape(String text) => const HtmlEscape(HtmlEscapeMode.element).convert(text);
+
   pw.Widget _buildTopItemCell(_PreparedPhotoEntry entry) {
     return pw.Container(
       width: _pdfItemColumnWidth,
@@ -808,7 +1613,7 @@ class _ExportScreenState extends State<ExportScreen> {
             leftCodes: const ['FC1', 'FC2', 'FC3', 'FC4'],
             rightCodes: const ['WC1', 'WC2', 'WC3', 'WC4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: true,
+            bottomSpacing: 2,
           ),
         ),
         pw.Expanded(
@@ -818,7 +1623,7 @@ class _ExportScreenState extends State<ExportScreen> {
             leftCodes: const ['B1', 'B2'],
             rightCodes: const ['B3', 'B4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: true,
+            bottomSpacing: 2,
           ),
         ),
         pw.Expanded(
@@ -828,7 +1633,7 @@ class _ExportScreenState extends State<ExportScreen> {
             leftCodes: const ['D1', 'D2'],
             rightCodes: const ['D3', 'D4'],
             selectedCodes: selectedCodes,
-            showBottomBorder: false,
+            bottomSpacing: 0,
           ),
         ),
       ],
@@ -840,16 +1645,9 @@ class _ExportScreenState extends State<ExportScreen> {
     required List<String> leftCodes,
     required List<String> rightCodes,
     required Set<String> selectedCodes,
-    required bool showBottomBorder,
+    required double bottomSpacing,
   }) {
-    final border = showBottomBorder
-        ? const pw.Border(
-            bottom: pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
-          )
-        : null;
-
     return pw.Container(
-      decoration: border == null ? null : pw.BoxDecoration(border: border),
       padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -888,6 +1686,7 @@ class _ExportScreenState extends State<ExportScreen> {
               ],
             ),
           ),
+          if (bottomSpacing > 0) pw.SizedBox(height: bottomSpacing),
         ],
       ),
     );
@@ -928,7 +1727,7 @@ class _ExportScreenState extends State<ExportScreen> {
       width: 10,
       height: 10,
       decoration: pw.BoxDecoration(
-        color: selected ? PdfColors.green400 : PdfColors.grey300,
+        color: PdfColors.white,
         border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
       ),
       child: selected ? _buildCheckMark() : null,
@@ -1033,6 +1832,184 @@ class _ExportScreenState extends State<ExportScreen> {
     );
   }
 
+  Future<void> _seedDemoDataset() async {
+    if (!kDebugMode) return;
+    setState(() => _isExporting = true);
+    try {
+      final authProvider = context.read<AuthProvider>();
+      final inspectionProvider = context.read<InspectionProvider>();
+      final user = authProvider.currentUser;
+      if (user == null || inspectionProvider.currentUserId.isEmpty) {
+        throw Exception('Please login before creating demo data');
+      }
+
+      final previousDemoEntries = inspectionProvider.inspections
+          .where((entry) => entry.refNo.startsWith('DEMO-REPORT-'))
+          .toList();
+      for (final entry in previousDemoEntries) {
+        final deleted = await inspectionProvider.deleteInspection(entry.id);
+        if (!deleted) {
+          throw Exception('Failed to reset existing demo entries');
+        }
+      }
+
+      final overallPhotoPath = await _createDemoImageFile(
+        fileName: 'demo_overall_site.png',
+        title: 'OVERALL SITE VIEW',
+        accentColor: const Color(0xFF1E88E5),
+      );
+      final defectPhotoAPath = await _createDemoImageFile(
+        fileName: 'demo_defect_area_a.png',
+        title: 'DEFECT AREA A',
+        accentColor: const Color(0xFF43A047),
+      );
+      final defectPhotoBPath = await _createDemoImageFile(
+        fileName: 'demo_defect_area_b.png',
+        title: 'DEFECT AREA B',
+        accentColor: const Color(0xFFF4511E),
+      );
+
+      final now = DateTime.now();
+      final overallSaved = await inspectionProvider.saveInspection(
+        itemNumber: '1',
+        photoPaths: [overallPhotoPath],
+        defectType: 'General',
+        defectCode: 'ND0',
+        location: 'Main building frontage',
+        inspectorComments:
+            'Overall site condition captured for baseline inspection.',
+        impactCategory: 'Minor',
+        status: 'No Defect',
+        timestamp: now.subtract(const Duration(minutes: 3)),
+        refNo: 'DEMO-REPORT-OV',
+        section: 'L/M/R',
+        scopeInternal: false,
+        scopeExternal: true,
+        scopeME: false,
+        scopePublicFacilities: false,
+        selectedDefectCodes: const [],
+        inspectionMode: 'overall',
+      );
+
+      final defectSavedA = await inspectionProvider.saveInspection(
+        itemNumber: '2',
+        photoPaths: [defectPhotoAPath],
+        defectType: 'Crack',
+        defectCode: 'FC1',
+        location: 'Ramp entrance',
+        inspectorComments:
+            '1. Hairline crack observed at ramp edge.\n2. Surface debond noted near plaster line.',
+        impactCategory: 'Moderate',
+        status: 'Defect',
+        timestamp: now.subtract(const Duration(minutes: 2)),
+        refNo: 'DEMO-REPORT-A1',
+        section: 'L/M/R',
+        scopeInternal: false,
+        scopeExternal: true,
+        scopeME: false,
+        scopePublicFacilities: false,
+        selectedDefectCodes: const ['FC1', 'WC2', 'B3'],
+        inspectionMode: 'defect',
+      );
+
+      final defectSavedB = await inspectionProvider.saveInspection(
+        itemNumber: '3',
+        photoPaths: [defectPhotoBPath],
+        defectType: 'Damage',
+        defectCode: 'D2',
+        location: 'Walkway curb',
+        inspectorComments:
+            '1. Localized concrete spalling exposing aggregate.\n2. Follow-up patching is recommended.',
+        impactCategory: 'Major',
+        status: 'Defect',
+        timestamp: now.subtract(const Duration(minutes: 1)),
+        refNo: 'DEMO-REPORT-A2',
+        section: 'L/M/R',
+        scopeInternal: false,
+        scopeExternal: true,
+        scopeME: false,
+        scopePublicFacilities: true,
+        selectedDefectCodes: const ['FC2', 'D2', 'WC1'],
+        inspectionMode: 'defect',
+      );
+
+      if (!overallSaved || !defectSavedA || !defectSavedB) {
+        throw Exception(
+          inspectionProvider.error ?? 'Failed to create one or more demo entries',
+        );
+      }
+
+      _showSuccess(
+        'Demo report data created: 1 Overall View + 2 Assessment Type entries',
+        File(overallPhotoPath),
+      );
+    } catch (e) {
+      _showFailure('Error creating demo report data: $e');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<String> _createDemoImageFile({
+    required String fileName,
+    required String title,
+    required Color accentColor,
+  }) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final demoDir = Directory(
+      p.join(appDir.path, 'FieldLens Reports', 'debug_demo'),
+    );
+    if (!await demoDir.exists()) {
+      await demoDir.create(recursive: true);
+    }
+
+    final file = File(p.join(demoDir.path, fileName));
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(
+      recorder,
+      const Rect.fromLTWH(0, 0, 1200, 900),
+    );
+
+    final background = Paint()..color = const Color(0xFFECEFF1);
+    final accent = Paint()..color = accentColor;
+    final border = Paint()
+      ..color = const Color(0xFF263238)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8;
+    canvas.drawRect(const Rect.fromLTWH(0, 0, 1200, 900), background);
+    canvas.drawRect(const Rect.fromLTWH(70, 70, 1060, 560), accent);
+    canvas.drawRect(const Rect.fromLTWH(70, 70, 1060, 560), border);
+    canvas.drawCircle(const Offset(960, 680), 120, accent);
+    canvas.drawLine(
+      const Offset(120, 760),
+      const Offset(1080, 760),
+      border..strokeWidth = 5,
+    );
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: title,
+        style: const TextStyle(
+          color: Color(0xFF102027),
+          fontSize: 64,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    );
+    textPainter.layout(maxWidth: 1040);
+    textPainter.paint(canvas, const Offset(90, 690));
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(1200, 900);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) {
+      throw Exception('Failed to generate demo image bytes');
+    }
+    await file.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
+    return file.path;
+  }
+
   @override
   Widget build(BuildContext context) {
     final inspectionProvider = context.watch<InspectionProvider>();
@@ -1109,6 +2086,17 @@ class _ExportScreenState extends State<ExportScreen> {
             SizedBox(
               width: double.infinity,
               height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _isExporting || count == 0 ? null : _exportToDocx,
+                icon: const Icon(Icons.description),
+                label: Text(
+                    _isExporting ? 'Exporting...' : 'Export Word (DOCX)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
               child: OutlinedButton.icon(
                 onPressed: () {
                   Navigator.push(
@@ -1123,6 +2111,18 @@ class _ExportScreenState extends State<ExportScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            if (kDebugMode) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: _isExporting ? null : _seedDemoDataset,
+                  icon: const Icon(Icons.bug_report),
+                  label: const Text('Seed Demo Report Data (Debug Only)'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             const Text(
               'Excel now embeds image thumbnails directly in each row.',
             ),
@@ -1155,5 +2155,19 @@ class _PreparedPhotoEntry {
     this.imageBytes,
     this.photoIndex = 0,
     this.totalPhotos = 0,
+  });
+}
+
+class _DocxMediaAsset {
+  final String path;
+  final Uint8List bytes;
+  final String contentType;
+  final String relationshipId;
+
+  _DocxMediaAsset({
+    required this.path,
+    required this.bytes,
+    required this.contentType,
+    required this.relationshipId,
   });
 }
