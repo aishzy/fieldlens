@@ -14,6 +14,7 @@ import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 
 import '../../../core/models/inspection_report_model.dart';
 import '../../../core/providers/auth_provider.dart';
+import 'pdf_test_module.dart';
 import '../../../core/providers/inspection_provider.dart';
 
 class ExportScreen extends StatefulWidget {
@@ -930,18 +931,43 @@ class _ExportScreenState extends State<ExportScreen> {
         color: selected ? PdfColors.green400 : PdfColors.grey300,
         border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
       ),
-      child: selected
-          ? pw.Center(
-              child: pw.Text(
-                '☑',
-                style: pw.TextStyle(
-                  color: PdfColors.black,
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 7,
-                ),
-              ),
-            )
-          : null,
+      child: selected ? _buildCheckMark() : null,
+    );
+  }
+
+  /// Draws a checkmark (✓) using two thin rotated rectangles.
+  /// This avoids font-dependent Unicode characters that may not render in PDF.
+  pw.Widget _buildCheckMark() {
+    return pw.Stack(
+      fit: pw.StackFit.expand,
+      children: [
+        // Short top-right stroke of the checkmark
+        pw.Positioned(
+          right: 2.5,
+          top: 2.5,
+          child: pw.Transform.rotate(
+            angle: 0.8, // ~46 degrees
+            child: pw.Container(
+              width: 1.5,
+              height: 3.2,
+              color: PdfColors.black,
+            ),
+          ),
+        ),
+        // Long bottom-left stroke of the checkmark
+        pw.Positioned(
+          left: 2.8,
+          bottom: 1.8,
+          child: pw.Transform.rotate(
+            angle: -0.6, // ~-34 degrees
+            child: pw.Container(
+              width: 1.5,
+              height: 5.8,
+              color: PdfColors.black,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1077,6 +1103,23 @@ class _ExportScreenState extends State<ExportScreen> {
                 label: Text(_isExporting
                     ? 'Exporting...'
                     : 'Export Excel (with images)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const PdfTestModuleScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.bug_report),
+                label: const Text('Test PDF Layouts (Sandbox)'),
               ),
             ),
             const SizedBox(height: 16),
