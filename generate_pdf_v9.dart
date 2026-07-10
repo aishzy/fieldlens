@@ -425,6 +425,7 @@ class PdfTestGenerator {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
+        _buildPdfPageHeader(firstEntry.prepared.inspection),
         if (isOverallPage)
           _buildOverallGridHeaderRow()
         else
@@ -437,6 +438,104 @@ class PdfTestGenerator {
           }
         }),
       ],
+    );
+  }
+
+  // ── Page Header (mirrors export_screenV3) ────────────────────────────────
+
+  static pw.Widget _buildPdfPageHeader(InspectionReportModel inspection) {
+    final locationText = inspection.location.trim().isNotEmpty ? inspection.location.trim() : '-';
+    final sectionText = inspection.section.trim().isNotEmpty ? inspection.section.trim() : '-';
+
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(bottom: 6),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(
+            flex: 6,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Location: ',
+                      style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Expanded(
+                      child: pw.Text(
+                        locationText,
+                        style: const pw.TextStyle(fontSize: 7.8),
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 4),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Section: ',
+                      style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Expanded(
+                      child: pw.Text(
+                        sectionText,
+                        style: const pw.TextStyle(fontSize: 7.8),
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(width: 12),
+          pw.Expanded(
+            flex: 4,
+            child: pw.Container(
+              padding: const pw.EdgeInsets.all(4),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.black, width: 0.8),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Row(
+                    children: [
+                      pw.Expanded(child: _buildHeaderScopeLine('Internal', inspection.scopeInternal)),
+                      pw.Expanded(child: _buildHeaderScopeLine('M&E', inspection.scopeME)),
+                    ],
+                  ),
+                  pw.Row(
+                    children: [
+                      pw.Expanded(child: _buildHeaderScopeLine('External', inspection.scopeExternal)),
+                      pw.Expanded(child: _buildHeaderScopeLine('Public facilities', inspection.scopePublicFacilities)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildHeaderScopeLine(String label, bool selected) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 2),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          _buildCheckBox(selected),
+          pw.SizedBox(width: 4),
+          pw.Text(label, style: const pw.TextStyle(fontSize: 7.8)),
+        ],
+      ),
     );
   }
 
