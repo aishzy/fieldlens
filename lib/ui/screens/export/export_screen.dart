@@ -42,7 +42,7 @@ class _ExportScreenState extends State<ExportScreen> {
 
   double get _pdfPhotoWidth => _pdfPhotoWidthCm * PdfPageFormat.cm;
   double get _pdfPhotoHeight => _pdfPhotoHeightCm * PdfPageFormat.cm;
-  double get _pdfItemColumnWidth => 1.45 * PdfPageFormat.cm;
+  double get _pdfItemColumnWidth => 1.6 * PdfPageFormat.cm;
   double get _pdfPhotoColumnWidth => _pdfPhotoWidth + 6;
   double get _pdfTopRowHeight => _pdfPhotoHeight + 6;
   double get _pdfBottomRowHeight => 56;
@@ -260,9 +260,6 @@ class _ExportScreenState extends State<ExportScreen> {
             flex: 4,
             child: pw.Container(
               padding: const pw.EdgeInsets.all(4),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.black, width: 0.8),
-              ),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
@@ -569,7 +566,7 @@ class _ExportScreenState extends State<ExportScreen> {
         width: _pdfPhotoWidth,
         height: _pdfPhotoHeight,
         alignment: pw.Alignment.center,
-        color: PdfColors.grey200,
+        color: PdfColors.white,
         child: pw.Text('No Image',
             style: const pw.TextStyle(color: PdfColors.grey600)),
       );
