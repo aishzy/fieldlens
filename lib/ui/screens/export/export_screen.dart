@@ -1122,6 +1122,7 @@ class _ExportScreenState extends State<ExportScreen> {
     )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final count = allInspections.length;
 
+    final activeReport = inspectionProvider.activeReport;
     return Scaffold(
       appBar: AppBar(title: const Text('Export Report')),
       body: SingleChildScrollView(
@@ -1129,6 +1130,37 @@ class _ExportScreenState extends State<ExportScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (activeReport != null)
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Active Report',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('Name: ${activeReport.reportName}'),
+                      Text('Site: ${activeReport.site.isEmpty ? '-' : activeReport.site}'),
+                      Text('Sector: ${activeReport.sector.isEmpty ? '-' : activeReport.sector}'),
+                      if (activeReport.siteLocation.isNotEmpty)
+                        Text('Location: ${activeReport.siteLocation}'),
+                      if (activeReport.inspector.isNotEmpty)
+                        Text('Inspector: ${activeReport.inspector}'),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),

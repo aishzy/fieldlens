@@ -3,6 +3,7 @@ import 'dart:convert';
 class InspectionReportModel {
   final String id;
   final String userId;
+  final String reportId;
   final String itemNumber;
   final List<String> photoPaths;
   final String defectType;
@@ -25,6 +26,7 @@ class InspectionReportModel {
   InspectionReportModel({
     required this.id,
     required this.userId,
+    required this.reportId,
     required this.itemNumber,
     required this.photoPaths,
     required this.defectType,
@@ -54,6 +56,7 @@ class InspectionReportModel {
     return {
       'id': id,
       'user_id': userId,
+      'report_id': reportId,
       'item_number': itemNumber,
       'photo_path': primaryPhotoPath,
       'photo_paths': jsonEncode(photoPaths),
@@ -111,6 +114,7 @@ class InspectionReportModel {
     return InspectionReportModel(
       id: map['id'] as String,
       userId: map['user_id'] as String,
+      reportId: (map['report_id'] ?? '') as String,
       itemNumber: map['item_number'] as String,
       photoPaths: parsedPhotoPaths,
       defectType: (map['defect_type'] ?? 'General') as String,
@@ -144,6 +148,7 @@ class InspectionReportModel {
     String? impactCategory,
     String? status,
     String? refNo,
+    String? reportId,
     String? section,
     bool? scopeInternal,
     bool? scopeExternal,
@@ -157,6 +162,7 @@ class InspectionReportModel {
     return InspectionReportModel(
       id: id ?? this.id,
       userId: userId ?? this.userId,
+      reportId: reportId ?? this.reportId,
       itemNumber: itemNumber ?? this.itemNumber,
       photoPaths: photoPaths ?? this.photoPaths,
       defectType: defectType ?? this.defectType,

@@ -2,16 +2,19 @@ import 'dart:convert';
 
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
 import '../models/inspection_report_model.dart';
+import '../models/report_model.dart';
 import '../models/user_model.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'dilapidation_survey.db';
-  static const _databaseVersion = 7;
+  static const _databaseVersion = 8;
 
   static const String usersTable = 'users';
   static const String inspectionReportsTable = 'inspection_reports';
+  static const String reportsTable = 'reports';
 
   static Database? _database;
 
@@ -32,11 +35,33 @@ class DatabaseHelper {
     );
   }
 
+  static Future<void> _createReportTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE $reportsTable (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        report_name TEXT NOT NULL,
+        site TEXT NOT NULL,
+        sector TEXT NOT NULL,
+        site_location TEXT NOT NULL,
+        inspector TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES $usersTable(id)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_reports_user_id ON $reportsTable(user_id)
+    ''');
+  }
+
   static Future<void> _createInspectionTable(Database db) async {
     await db.execute('''
       CREATE TABLE $inspectionReportsTable (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
+        report_id TEXT NOT NULL,
         item_number TEXT NOT NULL,
         photo_path TEXT NOT NULL,
         photo_paths TEXT NOT NULL,
@@ -56,7 +81,8 @@ class DatabaseHelper {
         timestamp TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
         inspection_mode TEXT NOT NULL DEFAULT 'defect',
-        FOREIGN KEY(user_id) REFERENCES $usersTable(id)
+        FOREIGN KEY(user_id) REFERENCES $usersTable(id),
+        FOREIGN KEY(report_id) REFERENCES $reportsTable(id)
       )
     ''');
 
@@ -77,6 +103,7 @@ class DatabaseHelper {
       )
     ''');
 
+    await _createReportTable(db);
     await _createInspectionTable(db);
   }
 
@@ -152,16 +179,70 @@ class DatabaseHelper {
       await db.execute(
         'ALTER TABLE $inspectionReportsTable RENAME TO ${inspectionReportsTable}_legacy_v7',
       );
+      await _createReportTable(db);
       await _createInspectionTable(db);
 
+      final userReportIds = <String, String>{};
       for (final row in inspections) {
-        await db.insert(
-          inspectionReportsTable,
-          _migrateInspectionRow(row),
-        );
+        final userId = (row['user_id'] ?? '') as String;
+        final reportId = userReportIds.putIfAbsent(userId, () {
+          final newReportId = const Uuid().v4();
+          db.insert(reportsTable, {
+            'id': newReportId,
+            'user_id': userId,
+            'report_name': 'Legacy Report',
+            'site': '',
+            'sector': '',
+            'site_location': '',
+            'inspector': '',
+            'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          });
+          return newReportId;
+        });
+
+        final migrated = _migrateInspectionRow(row);
+        migrated['report_id'] = reportId;
+        await db.insert(inspectionReportsTable, migrated);
       }
 
       await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy_v7');
+    }
+
+    if (oldVersion >= 7 && oldVersion < 8) {
+      final inspections = await db.query(inspectionReportsTable);
+      await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy_v8');
+      await db.execute(
+        'ALTER TABLE $inspectionReportsTable RENAME TO ${inspectionReportsTable}_legacy_v8',
+      );
+      await _createReportTable(db);
+      await _createInspectionTable(db);
+
+      final userReportIds = <String, String>{};
+      for (final row in inspections) {
+        final userId = (row['user_id'] ?? '') as String;
+        final reportId = userReportIds.putIfAbsent(userId, () {
+          final newReportId = const Uuid().v4();
+          db.insert(reportsTable, {
+            'id': newReportId,
+            'user_id': userId,
+            'report_name': 'Legacy Report',
+            'site': '',
+            'sector': '',
+            'site_location': '',
+            'inspector': '',
+            'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          });
+          return newReportId;
+        });
+
+        final migrated = _migrateInspectionRow(row);
+        migrated['report_id'] = reportId;
+        await db.insert(inspectionReportsTable, migrated);
+      }
+
+      await db.execute('DROP TABLE IF EXISTS ${inspectionReportsTable}_legacy_v8');
     }
   }
 
@@ -302,6 +383,92 @@ class DatabaseHelper {
       maps.length,
       (i) => InspectionReportModel.fromMap(maps[i]),
     );
+  }
+
+  static Future<List<InspectionReportModel>> getInspectionsByUserIdAndReport(
+    String userId,
+    String reportId,
+  ) async {
+    final db = await database;
+    final maps = await db.query(
+      inspectionReportsTable,
+      where: 'user_id = ? AND report_id = ?',
+      whereArgs: [userId, reportId],
+      orderBy: 'timestamp DESC',
+    );
+    return List.generate(
+      maps.length,
+      (i) => InspectionReportModel.fromMap(maps[i]),
+    );
+  }
+
+  static Future<bool> saveReport(ReportModel report) async {
+    try {
+      final db = await database;
+      await db.insert(
+        reportsTable,
+        report.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<List<ReportModel>> getReportsByUserId(String userId) async {
+    final db = await database;
+    final maps = await db.query(
+      reportsTable,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'created_at DESC',
+    );
+    return List.generate(
+      maps.length,
+      (i) => ReportModel.fromMap(maps[i]),
+    );
+  }
+
+  static Future<ReportModel?> getReportById(String id) async {
+    final db = await database;
+    final maps = await db.query(
+      reportsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return ReportModel.fromMap(maps.first);
+  }
+
+  static Future<bool> updateReport(ReportModel report) async {
+    try {
+      final db = await database;
+      final changes = await db.update(
+        reportsTable,
+        report.toMap(),
+        where: 'id = ?',
+        whereArgs: [report.id],
+      );
+      return changes > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> deleteReport(String id) async {
+    try {
+      final db = await database;
+      await db.delete(
+        reportsTable,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<List<InspectionReportModel>> getAllInspections() async {

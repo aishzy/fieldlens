@@ -150,6 +150,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final isMobile = MediaQuery.of(context).size.width < 600;
     final authProvider = context.watch<AuthProvider>();
     final inspectionProvider = context.watch<InspectionProvider>();
+    final activeReport = inspectionProvider.activeReport;
+    final reports = inspectionProvider.reports;
     final inspections = List.of(inspectionProvider.inspections)
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
@@ -226,6 +228,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           color: Colors.white70,
                         ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Active Report',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (reports.isNotEmpty)
+                        DropdownButtonFormField<String>(
+                          initialValue: activeReport?.id,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 14,
+                            ),
+                          ),
+                          items: reports
+                              .map(
+                                (report) => DropdownMenuItem(
+                                  value: report.id,
+                                  child: Text(report.reportName),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              inspectionProvider.setActiveReportId(value);
+                            }
+                          },
+                        )
+                      else
+                        const Text('No report available'),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _showCreateReportDialog,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Create New Report'),
+                        ),
+                      ),
+                      if (activeReport != null) ...[
+                        const SizedBox(height: 12),
+                        Text('Site: ${activeReport.site.isEmpty ? '-': activeReport.site}'),
+                        Text('Sector: ${activeReport.sector.isEmpty ? '-': activeReport.sector}'),
+                      ],
                     ],
                   ),
                 ),
@@ -382,5 +449,87 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showCreateReportDialog() async {
+    final nameController = TextEditingController();
+    final siteController = TextEditingController();
+    final sectorController = TextEditingController();
+    final locationController = TextEditingController();
+    final inspectorController = TextEditingController();
+
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Create Report'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Report Name'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: siteController,
+                  decoration: const InputDecoration(labelText: 'Site'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: sectorController,
+                  decoration: const InputDecoration(labelText: 'Sector'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: locationController,
+                  decoration: const InputDecoration(labelText: 'Site Location'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: inspectorController,
+                  decoration: const InputDecoration(labelText: 'Inspector'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (nameController.text.trim().isEmpty) return;
+                Navigator.pop(context, true);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (created == true) {
+      if (!mounted) return;
+      final inspectionProvider = context.read<InspectionProvider>();
+      final success = await inspectionProvider.createReport(
+        reportName: nameController.text.trim(),
+        site: siteController.text.trim(),
+        sector: sectorController.text.trim(),
+        siteLocation: locationController.text.trim(),
+        inspector: inspectorController.text.trim(),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success
+              ? 'Report created'
+              : inspectionProvider.error ?? 'Report creation failed'),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    }
   }
 }

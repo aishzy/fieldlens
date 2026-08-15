@@ -220,6 +220,7 @@ class PdfTestGenerator {
         InspectionReportModel(
           id: 'mock-overall-1',
           userId: 'test-user',
+          reportId: 'mock-report-1',
           itemNumber: 'OV-001',
           photoPaths: [],
           defectType: 'General',
@@ -246,6 +247,7 @@ class PdfTestGenerator {
         InspectionReportModel(
           id: 'mock-overall-2',
           userId: 'test-user',
+          reportId: 'mock-report-1',
           itemNumber: 'OV-002',
           photoPaths: [],
           defectType: 'General',
@@ -272,6 +274,7 @@ class PdfTestGenerator {
         InspectionReportModel(
           id: 'mock-defect-1',
           userId: 'test-user',
+          reportId: 'mock-report-1',
           itemNumber: 'DA-001',
           photoPaths: [],
           defectType: 'Cracking',
@@ -298,6 +301,7 @@ class PdfTestGenerator {
         InspectionReportModel(
           id: 'mock-defect-2',
           userId: 'test-user',
+          reportId: 'mock-report-1',
           itemNumber: 'DA-002',
           photoPaths: [],
           defectType: 'Damage',
@@ -374,8 +378,7 @@ class PdfTestGenerator {
       final itemLabel = prepared.inspection.itemNumber.isNotEmpty
           ? prepared.inspection.itemNumber
           : (index + 1).toString();
-      final inspectorLabel =
-          _buildInspectorLabel(inspectorName, inspectorId);
+      final inspectorLabel = _buildInspectorLabel(inspectorName, inspectorId);
 
       if (prepared.allImageBytes.isEmpty) {
         entries.add(
@@ -444,8 +447,11 @@ class PdfTestGenerator {
   // ── Page Header (mirrors export_screenV3) ────────────────────────────────
 
   static pw.Widget _buildPdfPageHeader(InspectionReportModel inspection) {
-    final locationText = inspection.location.trim().isNotEmpty ? inspection.location.trim() : '-';
-    final sectionText = inspection.section.trim().isNotEmpty ? inspection.section.trim() : '-';
+    final locationText = inspection.location.trim().isNotEmpty
+        ? inspection.location.trim()
+        : '-';
+    final sectionText =
+        inspection.section.trim().isNotEmpty ? inspection.section.trim() : '-';
 
     return pw.Container(
       margin: const pw.EdgeInsets.only(bottom: 6),
@@ -462,7 +468,8 @@ class PdfTestGenerator {
                   children: [
                     pw.Text(
                       'Location: ',
-                      style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+                      style: pw.TextStyle(
+                          fontSize: 8.5, fontWeight: pw.FontWeight.bold),
                     ),
                     pw.Expanded(
                       child: pw.Text(
@@ -479,7 +486,8 @@ class PdfTestGenerator {
                   children: [
                     pw.Text(
                       'Section: ',
-                      style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+                      style: pw.TextStyle(
+                          fontSize: 8.5, fontWeight: pw.FontWeight.bold),
                     ),
                     pw.Expanded(
                       child: pw.Text(
@@ -503,14 +511,22 @@ class PdfTestGenerator {
                 children: [
                   pw.Row(
                     children: [
-                      pw.Expanded(child: _buildHeaderScopeLine('Internal', inspection.scopeInternal)),
-                      pw.Expanded(child: _buildHeaderScopeLine('M&E', inspection.scopeME)),
+                      pw.Expanded(
+                          child: _buildHeaderScopeLine(
+                              'Internal', inspection.scopeInternal)),
+                      pw.Expanded(
+                          child:
+                              _buildHeaderScopeLine('M&E', inspection.scopeME)),
                     ],
                   ),
                   pw.Row(
                     children: [
-                      pw.Expanded(child: _buildHeaderScopeLine('External', inspection.scopeExternal)),
-                      pw.Expanded(child: _buildHeaderScopeLine('Public facilities', inspection.scopePublicFacilities)),
+                      pw.Expanded(
+                          child: _buildHeaderScopeLine(
+                              'External', inspection.scopeExternal)),
+                      pw.Expanded(
+                          child: _buildHeaderScopeLine('Public facilities',
+                              inspection.scopePublicFacilities)),
                     ],
                   ),
                 ],
@@ -578,10 +594,10 @@ class PdfTestGenerator {
     final child = pw.Container(
       alignment: pw.Alignment.center,
       height: 14,
-      decoration: pw.BoxDecoration(
+      decoration: const pw.BoxDecoration(
         border: pw.Border(
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: pw.Text(
@@ -628,12 +644,12 @@ class PdfTestGenerator {
     return pw.Container(
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          left: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
-          bottom: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          left:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          bottom:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: pw.Column(
@@ -712,10 +728,10 @@ class PdfTestGenerator {
       padding: const pw.EdgeInsets.fromLTRB(6, 2, 6, 2),
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          top: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          top:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: pw.Column(
@@ -723,8 +739,7 @@ class PdfTestGenerator {
         children: [
           pw.Text(
             "Inspector's comments:",
-            style:
-                pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
           ),
           if (lines.isNotEmpty) pw.SizedBox(height: 1.5),
           ...lines.map(
@@ -777,12 +792,12 @@ class PdfTestGenerator {
     return pw.Container(
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          left: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
-          bottom: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          left:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          bottom:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: pw.Column(
@@ -817,8 +832,8 @@ class PdfTestGenerator {
       padding: const pw.EdgeInsets.only(left: 4, top: 4, right: 2),
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       alignment: pw.Alignment.topLeft,
@@ -836,8 +851,8 @@ class PdfTestGenerator {
       padding: const pw.EdgeInsets.all(3),
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: photoWidget,
@@ -851,18 +866,17 @@ class PdfTestGenerator {
     );
   }
 
-  static pw.Widget _buildBottomLocationCell(
-      InspectionReportModel inspection) {
+  static pw.Widget _buildBottomLocationCell(InspectionReportModel inspection) {
     return pw.Container(
       width: _pdfItemColumnWidth,
       height: _pdfBottomRowHeight,
       padding: const pw.EdgeInsets.fromLTRB(4, 2, 3, 2),
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          top: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          top:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: pw.Column(
@@ -870,8 +884,7 @@ class PdfTestGenerator {
         children: [
           pw.Text(
             'Location:',
-            style:
-                pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 2),
           pw.Text(
@@ -903,10 +916,10 @@ class PdfTestGenerator {
       padding: const pw.EdgeInsets.fromLTRB(6, 2, 6, 2),
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          top: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
-          right: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          top:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
+          right:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: pw.Column(
@@ -914,8 +927,7 @@ class PdfTestGenerator {
         children: [
           pw.Text(
             "Inspector's comments:",
-            style:
-                pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
           ),
           if (lines.isNotEmpty) pw.SizedBox(height: 1.5),
           ...lines.map(
@@ -944,8 +956,8 @@ class PdfTestGenerator {
       padding: const pw.EdgeInsets.fromLTRB(4, 2, 4, 2),
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          top: pw.BorderSide(
-              color: PdfColors.black, width: _pdfGridBorderWidth),
+          top:
+              pw.BorderSide(color: PdfColors.black, width: _pdfGridBorderWidth),
         ),
       ),
       child: pw.Column(
@@ -953,8 +965,7 @@ class PdfTestGenerator {
         children: [
           pw.Text(
             'Impact Category:',
-            style:
-                pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 2),
           _buildImpactLine('Minor:', inspection.impactCategory == 'Minor'),
@@ -1025,8 +1036,7 @@ class PdfTestGenerator {
         children: [
           pw.Text(
             title,
-            style:
-                pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 1.5),
           pw.Expanded(
