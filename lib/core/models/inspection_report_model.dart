@@ -3,6 +3,7 @@ import 'dart:convert';
 class InspectionReportModel {
   final String id;
   final String userId;
+  final String reportId;
   final String itemNumber;
   final List<String> photoPaths;
   final String defectType;
@@ -18,15 +19,14 @@ class InspectionReportModel {
   final bool scopeME;
   final bool scopePublicFacilities;
   final List<String> selectedDefectCodes;
-  final double? latitude;
-  final double? longitude;
-  final String? address;
   final DateTime timestamp;
   final bool isSynced;
+  final String inspectionMode; // 'overall' for Overall View, 'defect' for Defect Assessment
 
   InspectionReportModel({
     required this.id,
     required this.userId,
+    required this.reportId,
     required this.itemNumber,
     required this.photoPaths,
     required this.defectType,
@@ -42,12 +42,13 @@ class InspectionReportModel {
     this.scopeME = false,
     this.scopePublicFacilities = false,
     this.selectedDefectCodes = const [],
-    this.latitude,
-    this.longitude,
-    this.address,
     required this.timestamp,
     this.isSynced = false,
+    this.inspectionMode = 'defect', // default to defect assessment mode
   });
+
+  bool get isOverallMode => inspectionMode == 'overall';
+  bool get isDefectMode => inspectionMode == 'defect';
 
   String get primaryPhotoPath => photoPaths.isNotEmpty ? photoPaths.first : '';
 
@@ -55,6 +56,7 @@ class InspectionReportModel {
     return {
       'id': id,
       'user_id': userId,
+      'report_id': reportId,
       'item_number': itemNumber,
       'photo_path': primaryPhotoPath,
       'photo_paths': jsonEncode(photoPaths),
@@ -71,11 +73,9 @@ class InspectionReportModel {
       'scope_me': scopeME ? 1 : 0,
       'scope_public_facilities': scopePublicFacilities ? 1 : 0,
       'selected_defect_codes': jsonEncode(selectedDefectCodes),
-      'latitude': latitude,
-      'longitude': longitude,
-      'address': address,
       'timestamp': timestamp.toIso8601String(),
       'is_synced': isSynced ? 1 : 0,
+      'inspection_mode': inspectionMode,
     };
   }
 
@@ -114,6 +114,7 @@ class InspectionReportModel {
     return InspectionReportModel(
       id: map['id'] as String,
       userId: map['user_id'] as String,
+      reportId: (map['report_id'] ?? '') as String,
       itemNumber: map['item_number'] as String,
       photoPaths: parsedPhotoPaths,
       defectType: (map['defect_type'] ?? 'General') as String,
@@ -129,13 +130,9 @@ class InspectionReportModel {
       scopeME: (map['scope_me'] ?? 0) == 1,
       scopePublicFacilities: (map['scope_public_facilities'] ?? 0) == 1,
       selectedDefectCodes: parsedDefectCodes,
-      latitude:
-          map['latitude'] is num ? (map['latitude'] as num).toDouble() : null,
-      longitude:
-          map['longitude'] is num ? (map['longitude'] as num).toDouble() : null,
-      address: map['address'] as String?,
       timestamp: DateTime.parse(map['timestamp'] as String),
       isSynced: (map['is_synced'] as int) == 1,
+      inspectionMode: (map['inspection_mode'] ?? 'defect') as String,
     );
   }
 
@@ -151,21 +148,21 @@ class InspectionReportModel {
     String? impactCategory,
     String? status,
     String? refNo,
+    String? reportId,
     String? section,
     bool? scopeInternal,
     bool? scopeExternal,
     bool? scopeME,
     bool? scopePublicFacilities,
     List<String>? selectedDefectCodes,
-    double? latitude,
-    double? longitude,
-    String? address,
     DateTime? timestamp,
     bool? isSynced,
+    String? inspectionMode,
   }) {
     return InspectionReportModel(
       id: id ?? this.id,
       userId: userId ?? this.userId,
+      reportId: reportId ?? this.reportId,
       itemNumber: itemNumber ?? this.itemNumber,
       photoPaths: photoPaths ?? this.photoPaths,
       defectType: defectType ?? this.defectType,
@@ -182,11 +179,9 @@ class InspectionReportModel {
       scopePublicFacilities:
           scopePublicFacilities ?? this.scopePublicFacilities,
       selectedDefectCodes: selectedDefectCodes ?? this.selectedDefectCodes,
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
-      address: address ?? this.address,
       timestamp: timestamp ?? this.timestamp,
       isSynced: isSynced ?? this.isSynced,
+      inspectionMode: inspectionMode ?? this.inspectionMode,
     );
   }
 }

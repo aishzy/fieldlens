@@ -3,25 +3,48 @@ import 'dart:io';
 import 'package:uuid/uuid.dart';
 import '../database/database_helper.dart';
 import '../models/inspection_report_model.dart';
+import '../models/report_model.dart';
 
 class InspectionProvider extends ChangeNotifier {
   String _currentUserId = '';
   List<InspectionReportModel> _inspections = [];
+  List<ReportModel> _reports = [];
+  String? _activeReportId;
   bool _isLoading = false;
   String? _error;
 
   String get currentUserId => _currentUserId;
   List<InspectionReportModel> get inspections => _inspections;
+  List<ReportModel> get reports => _reports;
+  String? get activeReportId => _activeReportId;
+  ReportModel? get activeReport {
+    if (_activeReportId == null) return null;
+    for (final report in _reports) {
+      if (report.id == _activeReportId) return report;
+    }
+    return null;
+  }
+
   bool get isLoading => _isLoading;
   String? get error => _error;
   int get inspectionCount => _inspections.length;
 
-  void setCurrentUserId(String userId) {
+  Future<void> setCurrentUserId(String userId) async {
     final changed = _currentUserId != userId;
     _currentUserId = userId;
-    if (changed) {
-      loadInspections();
+    if (!changed) return;
+
+    if (_currentUserId.isEmpty) {
+      _reports = [];
+      _activeReportId = null;
+      _inspections = [];
+      _error = null;
+      notifyListeners();
+      return;
     }
+
+    await _loadReports();
+    await loadInspections();
   }
 
   Future<void> loadInspections() async {
@@ -35,7 +58,19 @@ class InspectionProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _inspections = await DatabaseHelper.getInspectionsByUserId(_currentUserId);
+      if (_activeReportId == null && _reports.isEmpty) {
+        await _loadReports();
+      }
+
+      final reportId = _activeReportId ?? (_reports.isNotEmpty ? _reports.first.id : null);
+      if (reportId != null) {
+        _inspections = await DatabaseHelper.getInspectionsByUserIdAndReport(
+          _currentUserId,
+          reportId,
+        );
+      } else {
+        _inspections = await DatabaseHelper.getInspectionsByUserId(_currentUserId);
+      }
       _error = null;
     } catch (e) {
       _error = 'Failed to load inspections: ${e.toString()}';
@@ -55,16 +90,15 @@ class InspectionProvider extends ChangeNotifier {
     required String impactCategory,
     required String status,
     DateTime? timestamp,
-    double? latitude,
-    double? longitude,
-    String? address,
     String refNo = '',
     String section = '',
+    String? reportId,
     bool scopeInternal = false,
     bool scopeExternal = false,
     bool scopeME = false,
     bool scopePublicFacilities = false,
     List<String> selectedDefectCodes = const [],
+    String inspectionMode = 'defect',
   }) async {
     if (_currentUserId.isEmpty) {
       _error = 'No user logged in';
@@ -73,9 +107,18 @@ class InspectionProvider extends ChangeNotifier {
     }
 
     try {
+      await _ensureActiveReportExists();
+      final activeReportId = reportId ?? _activeReportId;
+      if (activeReportId == null || activeReportId.isEmpty) {
+        _error = 'No active report available';
+        notifyListeners();
+        return false;
+      }
+
       final inspection = InspectionReportModel(
         id: const Uuid().v4(),
         userId: _currentUserId,
+        reportId: activeReportId,
         itemNumber: itemNumber,
         photoPaths: photoPaths,
         defectType: defectType,
@@ -91,10 +134,8 @@ class InspectionProvider extends ChangeNotifier {
         scopeME: scopeME,
         scopePublicFacilities: scopePublicFacilities,
         selectedDefectCodes: selectedDefectCodes,
-        latitude: latitude,
-        longitude: longitude,
-        address: address,
         timestamp: timestamp ?? DateTime.now(),
+        inspectionMode: inspectionMode,
       );
 
       final success = await DatabaseHelper.saveInspectionReport(inspection);
@@ -161,6 +202,98 @@ class InspectionProvider extends ChangeNotifier {
   void clearError() {
     _error = null;
     notifyListeners();
+  }
+
+  Future<bool> setActiveReportId(String reportId) async {
+    if (_reports.any((report) => report.id == reportId)) {
+      _activeReportId = reportId;
+      notifyListeners();
+      await loadInspections();
+      return true;
+    }
+    return false;
+  }
+
+  Future<bool> createReport({
+    required String reportName,
+    required String site,
+    required String sector,
+    required String siteLocation,
+    required String inspector,
+  }) async {
+    if (_currentUserId.isEmpty) {
+      _error = 'No user logged in';
+      notifyListeners();
+      return false;
+    }
+
+    final newReport = ReportModel(
+      id: const Uuid().v4(),
+      userId: _currentUserId,
+      reportName: reportName,
+      site: site,
+      sector: sector,
+      siteLocation: siteLocation,
+      inspector: inspector,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    final success = await DatabaseHelper.saveReport(newReport);
+    if (!success) {
+      _error = 'Failed to create report';
+      notifyListeners();
+      return false;
+    }
+
+    _reports.insert(0, newReport);
+    _activeReportId = newReport.id;
+    notifyListeners();
+    await loadInspections();
+    return true;
+  }
+
+  Future<void> _loadReports() async {
+    if (_currentUserId.isEmpty) {
+      _reports = [];
+      _activeReportId = null;
+      return;
+    }
+
+    try {
+      _reports = await DatabaseHelper.getReportsByUserId(_currentUserId);
+      if (_reports.isEmpty) {
+        final defaultReport = ReportModel(
+          id: const Uuid().v4(),
+          userId: _currentUserId,
+          reportName: 'Default Report',
+          site: '',
+          sector: '',
+          siteLocation: '',
+          inspector: '',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+        final created = await DatabaseHelper.saveReport(defaultReport);
+        if (created) {
+          _reports = [defaultReport];
+          _activeReportId = defaultReport.id;
+          notifyListeners();
+        }
+      } else {
+        _activeReportId ??= _reports.first.id;
+      }
+    } catch (e) {
+      _error = 'Failed to load reports: ${e.toString()}';
+    }
+  }
+
+  Future<void> _ensureActiveReportExists() async {
+    if (_activeReportId != null) return;
+    await _loadReports();
+    if (_activeReportId == null && _reports.isNotEmpty) {
+      _activeReportId = _reports.first.id;
+    }
   }
 
   Future<void> _deleteInspectionImages(InspectionReportModel inspection) async {
