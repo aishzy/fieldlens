@@ -1,229 +1,163 @@
-# Dilapidation Survey Inspection App
+# FieldLens — Dilapidation Survey Inspection App
 
-A **complete, production-ready, offline-first mobile application** built with Flutter for conducting dilapidation surveys in the field. The app runs **100% offline** without requiring internet connectivity.
+[![Flutter](https://img.shields.io/badge/Flutter-3.x+-02569B?logo=flutter&logoColor=white)](https://flutter.dev) [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-lightgrey)](#)
+
+FieldLens is a complete, production-ready, offline-first mobile application built with Flutter for conducting dilapidation surveys in the field. The app is designed to work entirely offline, storing all inspection data locally and allowing inspectors to capture photos, classify defects, and produce professional PDF and Excel reports for sharing or archiving.
+
+Key goals:
+- Work 100% offline — no server or internet required for core functionality.
+- Provide a compact, touch-friendly interface optimized for field conditions (including sunlight/high-contrast scenarios).
+- Produce printable/exportable reports (PDF / XLSX) for handover and analysis.
+
+## Table of contents
+
+- Features
+- Architecture & Tech Stack
+- Project structure
+- Getting started
+- Usage guide
+- Database schema
+- Export formats
+- Testing
+- Troubleshooting
+- Deployment
+- Contributing & License
+- Contact
 
 ## 🎯 Features
 
-### ✅ Complete Offline Operation
-- No internet connection required
+### ✅ Offline-first
 - All data stored locally in SQLite
-- Full functionality available offline
-- Works in areas with no cellular coverage
+- Full functionality available without network connectivity
+- Designed to work in areas with no cellular coverage
 
-### 🔐 Secure Authentication
-- User registration and login
-- SHA256 password hashing with salt
-- Session persistence
-- Unique username validation
+### 🔐 Secure authentication
+- Local user registration and login
+- Passwords hashed with SHA256 + salt
+- Session persistence and secure logout
 
-### 📋 Dynamic Assessment Screen
-- **Photo Capture**: Integrated camera functionality
-- **Item Numbering**: Location-specific identification (e.g., "CH 165.2, LHS")
-- **Location Tagging**: Site location recording
-- **Defect Classification**:
-  - Crack: FC1, FC2, FC3, FC4, WC1, WC2, WC3, WC4
-  - Bent: B1, B2, B3, B4
-  - Damage: D1, D2, D3, D4
-- **Impact Categorization**: Minor, Moderate, Major
-- **Inspector Comments**: Preset quick-options + custom text
+### 📋 Dynamic assessment
+- Photo capture (camera integration)
+- Item numbering and location tagging
+- Defect classification (Crack, Bent, Damage with specific codes)
+- Impact categories (Minor / Moderate / Major)
+- Preset comments + free-text notes
 
 ### 📊 Dashboard
-- Welcome message with inspector details
-- Inspection statistics
-- Recent inspections list
-- Quick action buttons
+- Inspector welcome and statistics
+- Recent inspections and quick actions
 - Profile management
 
-### 📄 Export Engine
-- **PDF Reports**: Professional formatted reports with tables
-- **Excel Spreadsheets**: Standard .xlsx format for data analysis
-- **File Sharing**: Direct sharing via email/messaging
-- **Device Storage**: Saved to Documents folder
+### 📄 Export
+- PDF reports with table layout and inspector header
+- Excel (.xlsx) spreadsheets compatible with Excel/Sheets/LibreOffice
+- Share via email/messaging or save to device storage
 
-### 📱 Responsive Design
-- **Optimized for Mobile**: Touch-friendly interfaces
-- **Tablet Support**: Extended layouts for larger screens
-- **High Contrast UI**: Clear visibility under sunlight
-- **Material 3 Design**: Modern, intuitive interface
+### 📱 Responsive UI
+- Mobile-first layouts, tablet support, and Material 3 design
+- High-contrast options for field visibility
 
 ## 🏗️ Architecture
 
-**Clean Architecture** with separation of concerns:
-- **Core Layer**: Database, Models, State Management, Utilities
-- **UI Layer**: Screens, Widgets, Navigation
+This project follows a Clean Architecture approach with separation of concerns:
+- Core layer: database, models, providers, and utilities
+- UI layer: screens, widgets, and navigation
 
-**State Management**: Provider pattern for efficient state updates
+State management uses the Provider pattern for lightweight, predictable updates.
 
-**Database**: SQLite with proper indexing and foreign keys
+See ARCHITECTURE.md for more details.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
+## 🛠️ Tech stack
 
-## 🛠️ Tech Stack
+- Framework: Flutter 3.x+
+- Language: Dart
+- State management: Provider
+- Database: SQLite (sqflite)
+- PDF export: pdf package
+- Excel export: excel package
+- Camera: image_picker
+- Crypto: crypto (SHA256)
+- File sharing: share_plus
 
-| Component | Technology |
-|-----------|-----------|
-| Framework | Flutter 3.x+ |
-| Language | Dart |
-| State Management | Provider 6.x |
-| Database | SQLite (sqflite) |
-| Export - PDF | pdf package |
-| Export - Excel | excel package |
-| Camera | image_picker |
-| Crypto | crypto (SHA256) |
-| File Sharing | share_plus |
+## 📦 Project structure (high level)
 
-## 📦 Project Structure
-
-```
 lib/
 ├── core/
-│   ├── database/
-│   │   └── database_helper.dart          # SQLite operations
-│   ├── models/
-│   │   ├── user_model.dart               # User data model
-│   │   └── inspection_report_model.dart  # Inspection data model
-│   ├── providers/
-│   │   ├── auth_provider.dart            # Authentication state
-│   │   └── inspection_provider.dart      # Inspection state
-│   └── utils/
-│       └── password_hasher.dart          # Password encryption
+│   ├── database/              # SQLite helpers
+│   ├── models/                # Data models (User, InspectionReport)
+│   ├── providers/             # State management providers
+│   └── utils/                 # Utilities (e.g. password hasher)
 ├── ui/
-│   ├── screens/
-│   │   ├── auth/
-│   │   │   ├── login_screen.dart
-│   │   │   └── signup_screen.dart
-│   │   ├── dashboard/
-│   │   │   └── dashboard_screen.dart
-│   │   ├── assessment/
-│   │   │   └── assessment_screen.dart
-│   │   ├── export/
-│   │   │   └── export_screen.dart
-│   │   └── splash_screen.dart
-│   └── widgets/
-│       └── custom_widgets.dart
-└── main.dart                              # App entry point
-```
+│   ├── screens/               # App screens (auth, dashboard, assessment, export)
+│   └── widgets/               # Reusable widgets
+└── main.dart                  # App entry point
 
-## 🚀 Getting Started
+## 🚀 Getting started
 
 ### Prerequisites
 - Flutter SDK (3.0.0 or higher)
-- Dart SDK (included with Flutter)
 - Android Studio (for Android) or Xcode (for iOS)
 - Git
 
-### Installation
+### Install & run
 
-1. **Clone the repository**:
+1. Clone the repository
+
 ```bash
-git clone https://github.com/yourusername/fieldlens.git
+git clone https://github.com/aishzy/fieldlens.git
 cd fieldlens
 ```
 
-2. **Install dependencies**:
+2. Install dependencies
+
 ```bash
 flutter pub get
 ```
 
-3. **Run the app**:
+3. Run the app (connected device or simulator)
+
 ```bash
 flutter run
 ```
 
-### Android Setup
+### Platform setup notes
 
-1. Minimum SDK: Android 5.0 (API 21)
-2. Target SDK: Android 14 (API 34)
-3. Required permissions in `AndroidManifest.xml`:
-   ```xml
-   <uses-permission android:name="android.permission.CAMERA" />
-   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-   ```
+Android:
+- Minimum SDK: Android 5.0 (API 21)
+- Target SDK: Android 14 (API 34)
+- Ensure appropriate runtime permissions are requested for camera and storage on newer Android versions.
 
-### iOS Setup
+iOS:
+- Minimum iOS: 12.0
+- Add camera/photo usage descriptions to Info.plist (NSCameraUsageDescription, NSPhotoLibraryUsageDescription)
 
-1. Minimum iOS: 12.0
-2. Required permissions in `Info.plist`:
-   ```xml
-   <key>NSCameraUsageDescription</key>
-   <string>Camera access is required to capture inspection photos</string>
-   <key>NSPhotoLibraryUsageDescription</key>
-   <string>Photo library access is required to select inspection photos</string>
-   ```
+## 📖 Usage (quick guide)
 
-## 📖 Usage Guide
+First-time setup:
+1. Launch app → splash screen
+2. Sign up: full name, username (unique), email, password, inspector ID
+3. Open dashboard and create your first inspection
 
-### First-Time Setup
+Creating an inspection:
+1. Tap New Inspection
+2. Capture or attach a photo
+3. Enter item number and location
+4. Select defect type/code and impact category
+5. Add comments and Save to worksheet
 
-1. **Launch the app** → Splash screen
-2. **Sign up**:
-   - Enter Full Name
-   - Create unique Username
-   - Enter Email
-   - Create secure Password (min 6 characters)
-   - Enter Inspector ID
-   - Tap "Sign Up"
+Exporting reports:
+1. From Dashboard tap Export Report
+2. Choose PDF or Excel and export/share
 
-3. **Dashboard**: View empty inspection list
+## 🔒 Security & data
+- Passwords are hashed (SHA256) with salt and never stored in plaintext
+- All data lives locally on the device — no cloud syncing by default
+- Users control their data; there is no telemetry or tracking
 
-### Creating an Inspection
+## 🗄️ Database (examples)
 
-1. **Tap "New Inspection"** button
-2. **Capture Photo**: Tap camera button to take a photo
-3. **Enter Details**:
-   - Item Number: e.g., "CH 165.2, LHS"
-   - Location: e.g., "Pusat Pengajian Maktab PAT"
-4. **Select Assessment Type**:
-   - Choose from Crack, Bent, or Damage
-   - Select specific code (e.g., FC1, B2, D3)
-5. **Choose Impact Category**:
-   - Minor (Green)
-   - Moderate (Orange)
-   - Major (Red)
-6. **Add Comments**:
-   - Tap preset comments OR
-   - Type custom comments
-7. **Tap "Save to Worksheet"**
+Users table
 
-### Exporting Reports
-
-1. **Tap "Export Report"** on Dashboard
-2. **Choose Format**:
-   - **PDF**: Professional formatted report with table layout
-   - **Excel**: Spreadsheet format for analysis
-3. **Review Summary**: Total items and report info
-4. **Export**: Tap export button
-5. **Share**: Optional - share via email or messaging
-
-### Managing Profile
-
-1. **Tap menu icon** (top right)
-2. **View Profile**: See inspector details
-3. **Logout**: Tap logout and confirm
-
-## 🔒 Security Features
-
-### Password Protection
-- Passwords hashed using SHA256 algorithm
-- Salt-based hashing to prevent rainbow table attacks
-- Never stored in plaintext
-- Secure verification during login
-
-### Local Storage
-- All data encrypted at device OS level
-- No cloud storage or external servers
-- User has complete data control
-- No telemetry or tracking
-
-### Session Management
-- Session maintained locally
-- User context preserved
-- Secure logout functionality
-
-## 🗄️ Database Schema
-
-### Users Table
 ```sql
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
@@ -235,7 +169,8 @@ CREATE TABLE users (
 )
 ```
 
-### Inspection Reports Table
+Inspection reports table
+
 ```sql
 CREATE TABLE inspection_reports (
   id TEXT PRIMARY KEY,
@@ -253,137 +188,58 @@ CREATE TABLE inspection_reports (
 )
 ```
 
-## 📊 Data Export Formats
+## 📊 Export formats
 
-### PDF Report
-- Professional table layout
-- Inspector details in header
-- Columns: Item No, Location, Defect Code, Type, Impact, Comments
-- Page-aware formatting
-- Ready for printing
+PDF: printable, page-aware table layout with inspector header and item rows.
 
-### Excel Spreadsheet
-- Standard .xlsx format
-- Compatible with Excel, Google Sheets, LibreOffice
-- Columns: Item Number, Location, Defect Type, Defect Code, Impact Category, Comments, Date
-- Suitable for further analysis and reporting
-
-## 📱 Responsive UI
-
-### Mobile Devices (< 600px width)
-- Single-column layout
-- Touch-optimized buttons (48x48 minimum)
-- Scrollable content
-- Compact spacing
-
-### Tablets (600-1200px width)
-- Multi-column layouts
-- Extended card views
-- Larger typography
-- Optimized touch targets
-
-### Landscape Mode
-- Horizontal scrolling where needed
-- Full-width utilization
-- Landscape-optimized navigation
+Excel: .xlsx with columns suitable for analysis (Item No, Location, Defect Type, Defect Code, Impact, Comments, Date).
 
 ## 🧪 Testing
 
-### Unit Tests
+Unit tests:
+
 ```bash
 flutter test
 ```
 
-Test coverage for:
-- Database operations
-- Authentication logic
-- Password hashing
-- State management
+Integration tests:
 
-### Integration Tests
 ```bash
 flutter drive --target=test_driver/app.dart
 ```
 
-Test scenarios:
-- Complete signup → inspection → export flow
-- Photo capture and storage
-- Offline functionality
-- Navigation flows
-
 ## 🐛 Troubleshooting
-
-### App won't start
-- Clear app data: `flutter clean`
-- Rebuild: `flutter pub get && flutter run`
-
-### Camera not working
-- Check permissions in system settings
-- Ensure camera app isn't already open
-- Try restarting the app
-
-### Export fails
-- Verify sufficient storage space
-- Check write permissions
-- Ensure database isn't corrupted
-
-### Photos not saving
-- Check external storage permission
-- Verify available disk space
-- Review app cache settings
-
-## 📈 Performance
-
-- Lightweight SQLite database (~5MB per 1000 inspections)
-- Image optimization (max 1200x1200, 80% quality)
-- Efficient state management with Provider
-- Minimal UI rebuild overhead
-- Fast export generation
+- App won't start: run `flutter clean` and `flutter pub get`, then `flutter run`
+- Camera issues: check OS permissions and ensure no other app is using the camera
+- Export fails: verify storage space and write permissions
 
 ## 🚢 Deployment
 
-### Android
+Android:
+
 ```bash
 flutter build apk --release
 # or
 flutter build appbundle --release
 ```
 
-### iOS
+iOS:
+
 ```bash
 flutter build ios --release
 ```
 
 ## 📝 License
+This project is provided as-is for survey inspection purposes. If you want to add an open-source license, add a LICENSE file (MIT/Apache/etc.) and update this section.
 
-This project is provided as-is for survey inspection purposes.
-
-## 👨‍💻 Development
-
-### Code Style
-- Follow Dart style guide
-- Use meaningful variable names
-- Add comments for complex logic
-- Keep functions focused and small
-
-### Contributions
-- Create feature branches
-- Submit pull requests with clear descriptions
-- Include test coverage
-- Update documentation
-
-## 🤝 Support
-
-For issues or questions:
-1. Check existing GitHub issues
-2. Create new issue with details
-3. Include app version and device info
-4. Describe steps to reproduce
+## 🤝 Contributing
+- Create a feature branch
+- Open a pull request with a clear description and tests
+- Follow Dart style guidelines and keep changes focused
 
 ## 📞 Contact
-
 - Email: amalirfanshaha@gmail.com
-- Issue Tracker: GitHub Issues
+- Issues: use GitHub Issues in this repository — include app version and device information when reporting bugs
 
 ---
 
