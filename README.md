@@ -81,6 +81,7 @@ See ARCHITECTURE.md for more details.
 
 ## 📦 Project structure (high level)
 
+
 lib/
 ├── core/
 │   ├── database/              # SQLite helpers
@@ -91,6 +92,8 @@ lib/
 │   ├── screens/               # App screens (auth, dashboard, assessment, export)
 │   └── widgets/               # Reusable widgets
 └── main.dart                  # App entry point
+
+
 
 ## 🚀 Getting started
 
