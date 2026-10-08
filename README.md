@@ -1,165 +1,183 @@
-# FieldLens — Dilapidation Survey Inspection App
+# FieldLens
 
-[![Flutter](https://img.shields.io/badge/Flutter-3.x+-02569B?logo=flutter&logoColor=white)](https://flutter.dev) [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-lightgrey)](#)
+[![Flutter](https://img.shields.io/badge/Flutter-3.5%2B-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
+[![Platform](https://img.shields.io/badge/Android%20%7C%20iOS-Ready-3A7CA5)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-FieldLens is a complete, production-ready, offline-first mobile application built with Flutter for conducting dilapidation surveys in the field. The app is designed to work entirely offline, storing all inspection data locally and allowing inspectors to capture photos, classify defects, and produce professional PDF and Excel reports for sharing or archiving.
+FieldLens is an offline-first Flutter application for conducting dilapidation surveys in the field. It allows inspectors to capture defect details, attach photos, log condition issues, and export professional reports without requiring internet access.
 
-Key goals:
-- Work 100% offline — no server or internet required for core functionality.
-- Provide a compact, touch-friendly interface optimized for field conditions (including sunlight/high-contrast scenarios).
-- Produce printable/exportable reports (PDF / XLSX) for handover and analysis.
+Built for mobile use in real-world site conditions, FieldLens focuses on speed, reliability, and usability in environments with limited connectivity, poor lighting, or high-glare conditions.
 
 ## Table of contents
 
-- Features
-- Architecture & Tech Stack
-- Project structure
-- Getting started
-- Usage guide
-- Database schema
-- Export formats
-- Testing
-- Troubleshooting
-- Deployment
-- Contributing & License
-- Contact
+- [Overview](#overview)
+- [Key features](#key-features)
+- [Architecture](#architecture)
+- [Project structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Getting started](#getting-started)
+- [Usage guide](#usage-guide)
+- [Database schema](#database-schema)
+- [Exporting reports](#exporting-reports)
+- [Security and offline-first design](#security-and-offline-first-design)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
 
-## 🎯 Features
+## Overview
 
-### ✅ Offline-first
-- All data stored locally in SQLite
-- Full functionality available without network connectivity
-- Designed to work in areas with no cellular coverage
+FieldLens helps inspectors record dilapidation defects efficiently and consistently. The app keeps all inspection data locally on the device and supports quick workflows for:
 
-### 🔐 Secure authentication
-- Local user registration and login
-- Passwords hashed with SHA256 + salt
-- Session persistence and secure logout
+- creating a user profile and signing in
+- starting a new inspection
+- adding defect information with code, category, and notes
+- attaching photos from the camera or gallery
+- exporting reports in PDF or Excel format
 
-### 📋 Dynamic assessment
-- Photo capture (camera integration)
+This is designed for field teams that need dependable reporting even when connectivity is unavailable.
+
+## Key features
+
+### Offline-first inspection workflow
+- Full inspection workflow works without internet connectivity
+- Local SQLite storage for inspection data and user records
+- No server dependency for day-to-day inspection work
+
+### Secure authentication
+- Local signup and login flow
+- Secure password hashing with SHA-256 and salt
+- Session persistence for returning users
+
+### Defect recording
+- Photo capture or attachment
 - Item numbering and location tagging
-- Defect classification (Crack, Bent, Damage with specific codes)
-- Impact categories (Minor / Moderate / Major)
-- Preset comments + free-text notes
+- Defect classification such as crack, bent, and damage
+- Impact category selection: Minor, Moderate, Major
+- Quick-comment presets and free-text notes
 
-### 📊 Dashboard
-- Inspector welcome and statistics
-- Recent inspections and quick actions
-- Profile management
+### Dashboard and management
+- Inspector dashboard with summary data
+- Recent inspection history
+- Quick actions for new inspections and exports
+- Profile access and logout support
 
-### 📄 Export
-- PDF reports with table layout and inspector header
-- Excel (.xlsx) spreadsheets compatible with Excel/Sheets/LibreOffice
-- Share via email/messaging or save to device storage
+### Report generation
+- PDF report output with structured inspection tables
+- Excel export for sharing and spreadsheet analysis
+- Device-friendly export flow for email, messaging, and local storage
 
-### 📱 Responsive UI
-- Mobile-first layouts, tablet support, and Material 3 design
-- High-contrast options for field visibility
+### Field usability
+- Mobile-first responsive layout
+- Material 3 design
+- High-contrast, touch-friendly interface for outdoor use
 
-## 🏗️ Architecture
+## Architecture
 
-This project follows a Clean Architecture approach with separation of concerns:
-- Core layer: database, models, providers, and utilities
+The application follows a lightweight Clean Architecture structure:
+
+- Core layer: database logic, models, providers, and utilities
 - UI layer: screens, widgets, and navigation
-
-State management uses the Provider pattern for lightweight, predictable updates.
-
-See ARCHITECTURE.md for more details.
-
-## 🛠️ Tech stack
-
-- Framework: Flutter 3.x+
-- Language: Dart
 - State management: Provider
-- Database: SQLite (sqflite)
-- PDF export: pdf package
-- Excel export: excel package
-- Camera: image_picker
-- Crypto: crypto (SHA256)
-- File sharing: share_plus
 
-## 📦 Project structure (high level)
+This separation helps keep the app easier to maintain and easier to extend as the inspection workflow grows.
 
+## Project structure
 
-lib/
-├── core/
-│   ├── database/              # SQLite helpers
-│   ├── models/                # Data models (User, InspectionReport)
-│   ├── providers/             # State management providers
-│   └── utils/                 # Utilities (e.g. password hasher)
-├── ui/
-│   ├── screens/               # App screens (auth, dashboard, assessment, export)
-│   └── widgets/               # Reusable widgets
-└── main.dart                  # App entry point
+```text
+fieldlens/
+├── android/                  # Android project files
+├── ios/                      # iOS project files
+├── lib/
+│   ├── core/
+│   │   ├── database/         # SQLite operations
+│   │   ├── models/            # User and inspection data models
+│   │   ├── providers/         # Provider-based state management
+│   │   └── utils/             # Helpers and hashing utilities
+│   ├── ui/
+│   │   ├── screens/           # Auth, dashboard, assessment, export screens
+│   │   └── widgets/           # Reusable UI widgets
+│   ├── main.dart              # App entry point
+│   └── ...
+├── test/                     # Test suite
+├── analysis_options.yaml
+├── LICENSE
+├── pubspec.yaml
+├── README.md
+├── ARCHITECTURE.md
+├── QUICKSTART.md
+└── ...
+```
 
+## Prerequisites
 
+Before running the project, make sure you have:
 
-## 🚀 Getting started
-
-### Prerequisites
-- Flutter SDK (3.0.0 or higher)
-- Android Studio (for Android) or Xcode (for iOS)
+- Flutter SDK 3.5.0 or newer
+- Android Studio for Android development, or Xcode for iOS development
 - Git
+- An Android or iOS emulator, or a physical device
 
-### Install & run
+## Getting started
 
-1. Clone the repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/aishzy/fieldlens.git
 cd fieldlens
 ```
 
-2. Install dependencies
+### 2. Install dependencies
 
 ```bash
 flutter pub get
 ```
 
-3. Run the app (connected device or simulator)
+### 3. Run the app
 
 ```bash
 flutter run
 ```
 
-### Platform setup notes
+### Platform notes
 
 Android:
 - Minimum SDK: Android 5.0 (API 21)
 - Target SDK: Android 14 (API 34)
-- Ensure appropriate runtime permissions are requested for camera and storage on newer Android versions.
+- Ensure required runtime permissions are granted for camera and storage
 
 iOS:
 - Minimum iOS: 12.0
-- Add camera/photo usage descriptions to Info.plist (NSCameraUsageDescription, NSPhotoLibraryUsageDescription)
+- Add camera and photo usage descriptions in `Info.plist`
 
-## 📖 Usage (quick guide)
+## Usage guide
 
-First-time setup:
-1. Launch app → splash screen
-2. Sign up: full name, username (unique), email, password, inspector ID
-3. Open dashboard and create your first inspection
+### First-time setup
+1. Launch the app.
+2. Create an account with your name, username, email, password, and inspector ID.
+3. Sign in and open the dashboard.
 
-Creating an inspection:
-1. Tap New Inspection
-2. Capture or attach a photo
-3. Enter item number and location
-4. Select defect type/code and impact category
-5. Add comments and Save to worksheet
+### Creating an inspection
+1. Tap New Inspection.
+2. Capture or attach a photo.
+3. Add the item number and location.
+4. Select the defect type and code.
+5. Choose the impact category.
+6. Add notes or quick comments.
+7. Save the inspection record.
 
-Exporting reports:
-1. From Dashboard tap Export Report
-2. Choose PDF or Excel and export/share
+### Exporting a report
+1. Open the dashboard.
+2. Select Export Report.
+3. Choose PDF or Excel.
+4. Save or share the generated file.
 
-## 🔒 Security & data
-- Passwords are hashed (SHA256) with salt and never stored in plaintext
-- All data lives locally on the device — no cloud syncing by default
-- Users control their data; there is no telemetry or tracking
+## Database schema
 
-## 🗄️ Database (examples)
+The app stores critical data in local SQLite tables.
 
-Users table
+### Users table
 
 ```sql
 CREATE TABLE users (
@@ -169,10 +187,10 @@ CREATE TABLE users (
   inspector_id TEXT NOT NULL,
   password_hash TEXT NOT NULL,
   created_at TEXT NOT NULL
-)
+);
 ```
 
-Inspection reports table
+### Inspection reports table
 
 ```sql
 CREATE TABLE inspection_reports (
@@ -188,62 +206,87 @@ CREATE TABLE inspection_reports (
   timestamp TEXT NOT NULL,
   is_synced INTEGER DEFAULT 0,
   FOREIGN KEY(user_id) REFERENCES users(id)
-)
+);
 ```
 
-## 📊 Export formats
+## Exporting reports
 
-PDF: printable, page-aware table layout with inspector header and item rows.
+FieldLens supports generating both PDF and Excel exports.
 
-Excel: .xlsx with columns suitable for analysis (Item No, Location, Defect Type, Defect Code, Impact, Comments, Date).
+### PDF
+- professional table-based inspection layout
+- inspector details included in header
+- suitable for handover and formal reporting
 
-## 🧪 Testing
+### Excel
+- `.xlsx` output for spreadsheet workflows
+- compatible with Excel, Google Sheets, and LibreOffice
+- useful for data analysis and archive purposes
 
-Unit tests:
+## Security and offline-first design
+
+FieldLens is designed to store inspection data securely on-device.
+
+- Passwords are hashed using SHA-256 with salt
+- User credentials are not stored in plaintext
+- Inspection records stay local to the device by default
+- No cloud sync is required for core inspection tasks
+- All essential workflows remain available without network access
+
+## Testing
+
+Run the unit tests with:
 
 ```bash
 flutter test
 ```
 
-Integration tests:
+For app-level tests or device testing, use the Flutter driver flow if required by your setup.
 
-```bash
-flutter drive --target=test_driver/app.dart
-```
+## Deployment
 
-## 🐛 Troubleshooting
-- App won't start: run `flutter clean` and `flutter pub get`, then `flutter run`
-- Camera issues: check OS permissions and ensure no other app is using the camera
-- Export fails: verify storage space and write permissions
-
-## 🚢 Deployment
-
-Android:
+### Android
 
 ```bash
 flutter build apk --release
-# or
+```
+
+or
+
+```bash
 flutter build appbundle --release
 ```
 
-iOS:
+### iOS
 
 ```bash
 flutter build ios --release
 ```
 
-## 📝 License
-This project is provided as-is for survey inspection purposes. If you want to add an open-source license, add a LICENSE file (MIT/Apache/etc.) and update this section.
+## Contributing
 
-## 🤝 Contributing
-- Create a feature branch
-- Open a pull request with a clear description and tests
-- Follow Dart style guidelines and keep changes focused
+Contributions are welcome.
 
-## 📞 Contact
+1. Fork the repository.
+2. Create a feature branch.
+3. Make your changes.
+4. Add or update tests if relevant.
+5. Open a pull request with a clear summary.
+
+Please keep changes focused, follow Dart style conventions, and document meaningful behavior changes.
+
+## License
+
+This project is licensed under the MIT License.
+
+See [LICENSE](LICENSE) for the full text.
+
+## Contact
+
 - Email: amalirfanshaha@gmail.com
-- Issues: use GitHub Issues in this repository — include app version and device information when reporting bugs
+- GitHub: https://github.com/aishzy/fieldlens
+- Issues: open an issue in this repository for bugs, feature requests, or support questions
 
 ---
 
-Built to work offline, everywhere.
+Built for reliable field inspections, even without connectivity.
